@@ -1,0 +1,133 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: ai-interview-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - ./storage/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: ai-interview-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "${REDIS_PORT}:6379"
+    volumes:
+      - ./storage/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: ai-interview-ai-service
+    restart: unless-stopped
+    environment:
+      AI_SERVICE_APP_ENV: ${AI_SERVICE_APP_ENV}
+      AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY}
+      AI_SERVICE_MODEL_PROVIDER: ${AI_SERVICE_MODEL_PROVIDER}
+      AI_SERVICE_REDIS_URL: ${AI_SERVICE_REDIS_URL}
+      AI_SERVICE_KNOWLEDGE_ROOT: ${AI_SERVICE_KNOWLEDGE_ROOT}
+      AI_SERVICE_BACKEND_URL: ${AI_SERVICE_BACKEND_URL}
+    ports:
+      - "${AI_SERVICE_PORT}:8000"
+    volumes:
+      - ./storage/uploads:/app/storage/uploads
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  celery-worker:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: ai-interview-celery-worker
+    restart: unless-stopped
+    command: ["uv", "run", "celery", "--app", "app.workers.celery_app:celery_app", "worker", "--loglevel=info"]
+    environment:
+      AI_SERVICE_APP_ENV: ${AI_SERVICE_APP_ENV}
+      AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY}
+      AI_SERVICE_MODEL_PROVIDER: ${AI_SERVICE_MODEL_PROVIDER}
+      AI_SERVICE_REDIS_URL: ${AI_SERVICE_REDIS_URL}
+      AI_SERVICE_KNOWLEDGE_ROOT: ${AI_SERVICE_KNOWLEDGE_ROOT}
+      AI_SERVICE_BACKEND_URL: ${AI_SERVICE_BACKEND_URL}
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ai-interview-backend
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      App__FrontendUrl: ${APP_FRONTEND_URL}
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      ConnectionStrings__Redis: redis:6379,abortConnect=false
+      Jwt__Issuer: ${JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE}
+      Jwt__SecretKey: ${JWT_SECRET_KEY}
+      Jwt__AccessTokenExpiresMinutes: ${JWT_ACCESS_TOKEN_EXPIRES_MINUTES}
+      Jwt__RefreshTokenExpiresDays: ${JWT_REFRESH_TOKEN_EXPIRES_DAYS}
+      AiService__BaseUrl: http://ai-service:8000
+      AiService__ApiKey: ${AI_SERVICE_API_KEY}
+      Storage__KnowledgeRoot: ${STORAGE_KNOWLEDGE_ROOT}
+      Seed__Enabled: ${SEED_ENABLED}
+    ports:
+      - "${BACKEND_PORT}:8080"
+    volumes:
+      - ./storage/uploads:/app/storage/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
+    container_name: ai-interview-frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
+    ports:
+      - "${FRONTEND_PORT}:3000"
+    depends_on:
+      backend:
+        condition: service_started

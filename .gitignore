@@ -1,0 +1,41 @@
+# 环境变量
+.env
+.env.run
+.env.local
+.env.*.local
+
+# 无用文档
+Docs/
+docs/
+
+# 本地工具与缓存
+.npm-cache/
+.windsurf/
+*.log
+
+# 前端依赖与构建产物
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.npm-cache/
+
+# 后端构建产物
+backend/**/bin/
+backend/**/obj/
+backend/.tools/
+backend/TestResults/
+
+# AI 服务本地产物
+ai-service/.venv/
+ai-service/.pytest_cache/
+ai-service/**/__pycache__/
+ai-service/*.egg-info/
+
+# 本地数据卷与上传文件
+storage/postgres/
+storage/redis/
+storage/uploads/
+
+# 操作系统文件
+Thumbs.db
+.DS_Store

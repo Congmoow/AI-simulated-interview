@@ -1,0 +1,186 @@
+@config "../../tailwind.config.ts";
+@import "tailwindcss";
+@import "../styles/tokens.css";
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: var(--token-color-bg-page);
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  color: var(--token-color-text-primary);
+  background:
+    radial-gradient(circle at top right, rgba(0, 102, 255, 0.14), transparent 32%),
+    radial-gradient(circle at bottom left, rgba(6, 182, 212, 0.14), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(249, 250, 251, 0.98));
+  font-family: var(--font-body), "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+@keyframes fade-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.page-enter {
+  animation: fade-slide-up var(--token-transition-slow);
+}
+
+.shell-background::before {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  content: "";
+  background-image:
+    linear-gradient(rgba(17, 24, 39, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(17, 24, 39, 0.03) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.92), transparent 88%);
+}
+
+.surface-card {
+  border: 1px solid var(--token-color-border-default);
+  border-radius: var(--token-radius-2xl);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: var(--token-shadow-card);
+  backdrop-filter: blur(18px);
+}
+
+.surface-muted {
+  border: 1px solid rgba(17, 24, 39, 0.06);
+  border-radius: var(--token-radius-xl);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(244, 247, 251, 0.88));
+}
+
+.section-label {
+  font-size: var(--token-font-size-xs);
+  font-weight: var(--token-font-weight-semibold);
+  line-height: var(--token-line-height-tight);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--token-color-primary);
+}
+
+.display-title {
+  font-family: var(--font-heading), "PingFang SC", serif;
+  font-size: clamp(var(--token-font-size-3xl), 4vw, var(--token-font-size-5xl));
+  font-weight: var(--token-font-weight-bold);
+  line-height: var(--token-line-height-tight);
+  letter-spacing: -0.04em;
+}
+
+.section-title {
+  font-family: var(--font-heading), "PingFang SC", serif;
+  font-size: var(--token-font-size-2xl);
+  font-weight: var(--token-font-weight-semibold);
+  line-height: var(--token-line-height-tight);
+}
+
+.text-caption {
+  font-size: var(--token-font-size-sm);
+  line-height: var(--token-line-height-normal);
+  color: var(--token-color-text-secondary);
+}
+
+.input-shell {
+  width: 100%;
+  border: 1px solid var(--token-color-border-default);
+  border-radius: var(--token-radius-xl);
+  background: rgba(255, 255, 255, 0.92);
+  padding: var(--token-space-4) var(--token-space-4);
+  color: var(--token-color-text-primary);
+}
+
+.input-shell:focus {
+  outline: none;
+  border-color: var(--token-color-border-focus);
+  box-shadow: 0 0 0 4px rgba(0, 102, 255, 0.12);
+}
+
+.primary-button,
+.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--token-space-2);
+  border-radius: var(--token-radius-full);
+  padding: var(--token-space-3) var(--token-space-5);
+  font-size: var(--token-font-size-sm);
+  font-weight: var(--token-font-weight-semibold);
+  transition: transform var(--token-transition-fast), opacity var(--token-transition-fast), box-shadow var(--token-transition-fast);
+}
+
+.primary-button {
+  border: 0;
+  background: linear-gradient(135deg, var(--token-color-primary), var(--token-color-interview-user));
+  color: var(--token-color-text-inverse);
+  box-shadow: 0 14px 30px rgba(0, 102, 255, 0.18);
+}
+
+.secondary-button {
+  border: 1px solid var(--token-color-border-default);
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--token-color-text-primary);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--token-space-2);
+  border-radius: var(--token-radius-full);
+  padding: var(--token-space-2) var(--token-space-3);
+  font-size: var(--token-font-size-xs);
+  font-weight: var(--token-font-weight-semibold);
+}
+
+.state-card {
+  display: grid;
+  place-items: center;
+  gap: var(--token-space-3);
+  min-height: 220px;
+  border: 1px dashed rgba(17, 24, 39, 0.12);
+  border-radius: var(--token-radius-2xl);
+  background: rgba(255, 255, 255, 0.78);
+  text-align: center;
+}
+
+.skeleton-bar {
+  border-radius: var(--token-radius-full);
+  background: linear-gradient(90deg, rgba(229, 231, 235, 0.8), rgba(209, 213, 219, 0.95), rgba(229, 231, 235, 0.8));
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite linear;
+}
