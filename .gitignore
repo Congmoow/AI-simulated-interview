@@ -4,14 +4,18 @@
 .env.local
 .env.*.local
 
-# 无用文档
+# 开发文档
 Docs/
 docs/
 
 # 本地工具与缓存
 .npm-cache/
 .windsurf/
+.dev-logs
+.dev-pids.json
 *.log
+node_modules/
+.npmrc
 
 # 前端依赖与构建产物
 frontend/node_modules/

@@ -1,0 +1,18 @@
+{
+  "name": "ai-simulated-interview",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "postinstall": "node scripts/bootstrap-frontend.mjs",
+    "predev": "node scripts/predev.mjs dev",
+    "predev:full": "node scripts/predev.mjs full",
+    "dev": "concurrently --names frontend,backend --prefix \"[{name}]\" --prefix-colors \"cyan,green\" --kill-others \"npm --prefix frontend run dev\" \"dotnet run --project backend/src/AiInterview.Api/AiInterview.Api.csproj\"",
+    "dev:full": "concurrently --names frontend,backend,ai-service --prefix \"[{name}]\" --prefix-colors \"cyan,green,magenta\" --kill-others \"npm --prefix frontend run dev\" \"dotnet run --project backend/src/AiInterview.Api/AiInterview.Api.csproj\" \"cd ai-service && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app\"",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "dotnet run --project backend/src/AiInterview.Api/AiInterview.Api.csproj",
+    "dev:ai-service": "cd ai-service && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

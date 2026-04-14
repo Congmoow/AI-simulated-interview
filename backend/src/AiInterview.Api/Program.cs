@@ -1,5 +1,6 @@
 using AiInterview.Api.Data;
 using AiInterview.Api.Hubs;
+using AiInterview.Api.Infrastructure;
 using AiInterview.Api.Middleware;
 using AiInterview.Api.Options;
 using AiInterview.Api.Repositories;
@@ -61,7 +62,8 @@ builder.Services.AddCors(options =>
     options.AddPolicy("frontend", policy =>
     {
         policy
-            .WithOrigins(frontendUrl)
+            .SetIsOriginAllowed(origin =>
+                FrontendCorsPolicy.IsAllowedOrigin(origin, frontendUrl, builder.Environment.IsDevelopment()))
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials();
