@@ -266,9 +266,19 @@ class OpenAICompatibleProvider(ModelProvider):
                 for key, value in request.dimension_scores.items()
             ]
         )
-        rounds_text = self._build_rounds_text(request.rounds)
+        rounds_text = self._build_report_rounds_text(request.rounds)
+        report_timeout_seconds = 75.0
 
         try:
+            logger.info(
+                "报告请求准备发送：step=%s timeout_seconds=%s input_summary_length=%s provider=%s base_url=%s model=%s",
+                "generate_report",
+                report_timeout_seconds,
+                len(rounds_text),
+                self.settings.provider,
+                self.settings.base_url,
+                self.settings.model,
+            )
             payload = self._chat_json(
                 step="generate_report",
                 system_prompt=(
@@ -287,36 +297,40 @@ class OpenAICompatibleProvider(ModelProvider):
                 ),
                 temperature=max(self.settings.temperature, 0.2),
                 max_tokens=min(max(self.settings.max_tokens, 600), 1800),
+                timeout_seconds=report_timeout_seconds,
             )
 
-            executive_summary = self._as_text(payload.get("executiveSummary"))
+            executive_summary = self._normalize_executive_summary(payload)
             if not executive_summary:
                 raise ValueError("真实 provider 未返回 executiveSummary")
 
-            detailed_analysis = payload.get("detailedAnalysis")
-            if detailed_analysis is None:
-                detailed_analysis = {}
-            if not isinstance(detailed_analysis, dict):
-                raise ValueError("真实 provider 返回的 detailedAnalysis 不是对象")
-
-            training_plan = payload.get("trainingPlan")
-            if training_plan is None:
-                training_plan = []
-            if not isinstance(training_plan, list):
-                raise ValueError("真实 provider 返回的 trainingPlan 不是数组")
+            strengths = self._normalize_string_list(payload.get("strengths"))
+            weaknesses = self._normalize_string_list(payload.get("weaknesses"))
+            learning_suggestions = self._normalize_string_list(payload.get("learningSuggestions"))
 
             return GenerateReportResponse(
                 executiveSummary=executive_summary,
-                strengths=self._as_str_list(payload.get("strengths")),
-                weaknesses=self._as_str_list(payload.get("weaknesses")),
-                detailedAnalysis=detailed_analysis,
-                learningSuggestions=self._as_str_list(payload.get("learningSuggestions")),
-                trainingPlan=training_plan,
-                nextInterviewFocus=self._as_str_list(payload.get("nextInterviewFocus")),
+                strengths=strengths,
+                weaknesses=weaknesses,
+                detailedAnalysis=self._normalize_detailed_analysis(payload.get("detailedAnalysis")),
+                learningSuggestions=learning_suggestions,
+                trainingPlan=self._normalize_training_plan(payload.get("trainingPlan")),
+                nextInterviewFocus=self._normalize_string_list(payload.get("nextInterviewFocus")),
                 modelVersion=self.model_version,
             )
         except Exception as exc:
-            self._log_step_failure("generate_report", exc)
+            response_payload_snippet = ""
+            if "payload" in locals():
+                response_payload_snippet = self._sanitize_text(
+                    json.dumps(payload, ensure_ascii=False, default=str)[:320]
+                )
+            self._log_step_failure(
+                "generate_report",
+                exc,
+                timeout_seconds=report_timeout_seconds,
+                input_summary_length=len(rounds_text),
+                response_body_snippet=response_payload_snippet,
+            )
             raise
 
     def recommend_resources(self, request: ResourceRecommendationRequest) -> ResourceRecommendationResponse:
@@ -437,7 +451,7 @@ class OpenAICompatibleProvider(ModelProvider):
 
     def _log_step_failure(self, step: str, exc: Exception, **context: Any) -> None:
         status_code = getattr(exc, "status_code", None)
-        response_body_snippet = getattr(exc, "response_body_snippet", "")
+        response_body_snippet = getattr(exc, "response_body_snippet", "") or context.get("response_body_snippet", "")
         timeout_seconds = getattr(exc, "timeout_seconds", None)
         elapsed_ms = getattr(exc, "elapsed_ms", None)
         received_response_headers = getattr(exc, "received_response_headers", False)
@@ -533,6 +547,14 @@ class OpenAICompatibleProvider(ModelProvider):
 
     @classmethod
     def _build_score_rounds_text(cls, rounds: list[Any]) -> str:
+        return cls._build_compact_rounds_text(rounds)
+
+    @classmethod
+    def _build_report_rounds_text(cls, rounds: list[Any]) -> str:
+        return cls._build_compact_rounds_text(rounds)
+
+    @classmethod
+    def _build_compact_rounds_text(cls, rounds: list[Any]) -> str:
         parts: list[str] = []
         for round_item in rounds:
             follow_ups = round_item.follow_ups[-2:] if round_item.follow_ups else []
@@ -557,3 +579,47 @@ class OpenAICompatibleProvider(ModelProvider):
         if len(value) <= limit:
             return value
         return value[: limit - len("...[截断]")] + "...[截断]"
+
+    @classmethod
+    def _truncate_with_marker(cls, value: str, limit: int, marker: str = "[TRUNCATED]") -> str:
+        if len(value) <= limit:
+            return value
+        return value[: limit - len(marker)] + marker
+
+    @classmethod
+    def _normalize_executive_summary(cls, payload: dict[str, Any]) -> str:
+        for key in ("executiveSummary", "summary", "overallSummary"):
+            text = cls._as_text(payload.get(key))
+            if text:
+                return cls._truncate_with_marker(text, 1200)
+        return ""
+
+    @classmethod
+    def _normalize_string_list(cls, value: Any) -> list[str]:
+        if isinstance(value, str):
+            text = cls._as_text(value)
+            return [text] if text else []
+        if isinstance(value, list):
+            return [cls._as_text(item) for item in value if cls._as_text(item)]
+        return []
+
+    @staticmethod
+    def _normalize_detailed_analysis(value: Any) -> dict[str, Any]:
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            text = value.strip()
+            return {"summary": text} if text else {}
+        if isinstance(value, list):
+            return {"items": value} if value else {}
+        return {}
+
+    @staticmethod
+    def _normalize_training_plan(value: Any) -> list[Any]:
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return value
+        if isinstance(value, dict):
+            return [value]
+        return []

@@ -173,7 +173,7 @@ def test_generate_report_should_use_real_ai_response(monkeypatch) -> None:
     assert response.model_version == "qwen:qwen-plus"
 
 
-def test_score_interview_should_use_explicit_75s_timeout_and_other_steps_keep_default(monkeypatch) -> None:
+def test_score_and_report_should_use_explicit_75s_timeout_and_other_steps_keep_default(monkeypatch) -> None:
     provider = _build_provider()
     calls: list[tuple[str, float]] = []
 
@@ -212,7 +212,7 @@ def test_score_interview_should_use_explicit_75s_timeout_and_other_steps_keep_de
         ("answer_interview", 30.0),
         ("finish_interview", 30.0),
         ("score_interview", 75.0),
-        ("generate_report", 30.0),
+        ("generate_report", 75.0),
     ]
 
 
@@ -245,6 +245,90 @@ def test_build_score_rounds_text_should_trim_fields_and_total_length() -> None:
     assert ("[TRUNCATED]" in summary) or (len(summary) < 2400)
 
 
+def test_build_report_rounds_text_should_trim_fields_and_total_length() -> None:
+    provider = _build_provider()
+    request = GenerateReportRequest(
+        interviewId=uuid4(),
+        positionCode="java-backend",
+        overallScore=88,
+        dimensionScores={},
+        rounds=[
+            ScoreRound(
+                roundNumber=index + 1,
+                questionType="scenario",
+                questionTitle="题目" + ("A" * 400),
+                questionContent="内容" + ("B" * 1000),
+                answer="回答" + ("C" * 1600),
+                followUps=[
+                    "追问1" + ("D" * 300),
+                    "追问2" + ("E" * 300),
+                    "追问3" + ("F" * 300),
+                ],
+            )
+            for index in range(6)
+        ],
+    )
+
+    summary = provider._build_report_rounds_text(request.rounds)
+
+    assert len(summary) <= 2400
+    assert "追问1" not in summary
+    assert ("[TRUNCATED]" in summary) or (len(summary) < 2400)
+
+
+def test_generate_report_should_normalize_non_core_fields(monkeypatch) -> None:
+    provider = _build_provider()
+
+    monkeypatch.setattr(
+        provider,
+        "_chat_json",
+        lambda **_: {
+            "summary": "这是一段总结",
+            "strengths": "结构清晰",
+            "weaknesses": ["细节略少"],
+            "learningSuggestions": "补充指标",
+            "detailedAnalysis": ["分析项1", "分析项2"],
+            "trainingPlan": {"week": 1, "topic": "缓存"},
+            "nextInterviewFocus": "一致性设计",
+        },
+    )
+
+    response = provider.generate_report(_build_report_request())
+
+    assert response.executive_summary == "这是一段总结"
+    assert response.strengths == ["结构清晰"]
+    assert response.weaknesses == ["细节略少"]
+    assert response.learning_suggestions == ["补充指标"]
+    assert response.detailed_analysis == {"items": ["分析项1", "分析项2"]}
+    assert response.training_plan == [{"week": 1, "topic": "缓存"}]
+    assert response.next_interview_focus == ["一致性设计"]
+
+
+def test_generate_report_should_accept_minimal_report_payload(monkeypatch) -> None:
+    provider = _build_provider()
+
+    monkeypatch.setattr(
+        provider,
+        "_chat_json",
+        lambda **_: {
+            "executiveSummary": "最小总结",
+            "strengths": ["优点"],
+            "weaknesses": ["不足"],
+            "learningSuggestions": ["建议"],
+        },
+    )
+
+    response = provider.generate_report(_build_report_request())
+
+    assert response.executive_summary == "最小总结"
+    assert response.strengths == ["优点"]
+    assert response.weaknesses == ["不足"]
+    assert response.learning_suggestions == ["建议"]
+    assert response.detailed_analysis == {}
+    assert response.training_plan == []
+    assert response.next_interview_focus == []
+
+
 def test_score_interview_should_log_observability_fields_on_timeout(monkeypatch, caplog) -> None:
     provider = _build_provider()
 
@@ -270,3 +354,30 @@ def test_score_interview_should_log_observability_fields_on_timeout(monkeypatch,
     assert "received_response_headers=False" in message
     assert "input_summary_length=" in message
     assert "inner_exception=ReadTimeout" in message
+
+
+def test_generate_report_should_log_observability_fields_on_timeout(monkeypatch, caplog) -> None:
+    provider = _build_provider()
+
+    timeout_error = httpx.ReadTimeout("timed out")
+
+    def raise_provider_call_error(**_: object) -> dict[str, object]:
+        raise ProviderCallError(
+            "generate_report 请求上游失败",
+            timeout_seconds=75.0,
+            elapsed_ms=40123.0,
+            received_response_headers=False,
+        ) from timeout_error
+
+    monkeypatch.setattr(provider, "_chat_json", raise_provider_call_error)
+
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(Exception):
+            provider.generate_report(_build_report_request())
+
+    message = "\n".join(caplog.messages)
+    assert "step=generate_report" in message
+    assert "timeout_seconds=75.0" in message
+    assert "input_summary_length=" in message
+    assert "inner_exception=ReadTimeout" in message
+    assert "response_body_snippet=" in message
