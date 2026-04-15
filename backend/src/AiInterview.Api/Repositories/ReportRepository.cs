@@ -19,6 +19,19 @@ public class ReportRepository(ApplicationDbContext dbContext) : IReportRepositor
         return dbContext.InterviewScores.FirstOrDefaultAsync(x => x.InterviewId == interviewId, cancellationToken);
     }
 
+    public async Task<Dictionary<Guid, InterviewScore>> GetScoresByInterviewIdsAsync(IEnumerable<Guid> interviewIds, CancellationToken cancellationToken = default)
+    {
+        var ids = interviewIds.Distinct().ToArray();
+        if (ids.Length == 0)
+        {
+            return [];
+        }
+
+        return await dbContext.InterviewScores
+            .Where(x => ids.Contains(x.InterviewId))
+            .ToDictionaryAsync(x => x.InterviewId, cancellationToken);
+    }
+
     public Task<List<InterviewReport>> GetUserReportsAsync(Guid userId, string? positionCode, CancellationToken cancellationToken = default)
     {
         var query = dbContext.InterviewReports

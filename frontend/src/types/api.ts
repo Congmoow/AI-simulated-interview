@@ -154,6 +154,66 @@ export interface GrowthDetail {
   }>;
 }
 
+export interface DashboardInsightsDetail {
+  overview: {
+    totalInterviews: number;
+    totalReports: number;
+    recent30DayInterviews: number;
+    strengthsCount: number;
+    weaknessesCount: number;
+    trend: "up" | "flat" | "down";
+    updatedAt?: string | null;
+  };
+  scope: {
+    scopeStrategy: string;
+    actualScope: string;
+    targetPositionCode?: string | null;
+    targetPositionName?: string | null;
+    fallbackTriggered: boolean;
+    fallbackReason?: string | null;
+    reportCount: number;
+  };
+  strengths: Array<{
+    key: string;
+    title: string;
+    description: string;
+    evidenceCount: number;
+    lastSeenAt: string;
+    evidenceSamples: string[];
+    sources: DashboardInsightSource[];
+  }>;
+  weaknesses: Array<{
+    key: string;
+    title: string;
+    description: string;
+    evidenceCount: number;
+    lastSeenAt: string;
+    typicalBehaviors: string[];
+    suggestion: string;
+    sources: DashboardInsightSource[];
+  }>;
+  abilityDimensions6: Array<{
+    key: string;
+    name: string;
+    score: number;
+    sourceDimensions: string[];
+  }>;
+  recentTrend: Array<{
+    date: string;
+    score: number;
+    interviewId: string;
+    reportId: string;
+  }>;
+  nextActions: string[];
+}
+
+export interface DashboardInsightSource {
+  interviewId: string;
+  reportId: string;
+  generatedAt: string;
+  positionName: string;
+}
+
 export interface ResourceRecommendation {
   resourceId: string;
   title: string;

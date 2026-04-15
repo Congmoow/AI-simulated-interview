@@ -67,6 +67,14 @@ file sealed class InMemoryReportRepository : IReportRepository
         return Task.FromResult(SavedScore?.InterviewId == interviewId ? SavedScore : null);
     }
 
+    public Task<Dictionary<Guid, InterviewScore>> GetScoresByInterviewIdsAsync(IEnumerable<Guid> interviewIds, CancellationToken cancellationToken = default)
+    {
+        var result = SavedScore is not null && interviewIds.Contains(SavedScore.InterviewId)
+            ? new Dictionary<Guid, InterviewScore> { [SavedScore.InterviewId] = SavedScore }
+            : [];
+        return Task.FromResult(result);
+    }
+
     public Task<List<InterviewReport>> GetUserReportsAsync(Guid userId, string? positionCode, CancellationToken cancellationToken = default)
     {
         throw new NotSupportedException();
