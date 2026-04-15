@@ -31,7 +31,15 @@ Log.Logger = new LoggerConfiguration()
 
 builder.Host.UseSerilog();
 
-var dataProtectionKeysPath = builder.Configuration.GetValue<string>("DataProtection:KeysPath") ?? "/app/dp-keys";
+var dataProtectionKeysPath = builder.Configuration.GetValue<string>("DataProtection:KeysPath")
+    ?? throw new InvalidOperationException("缺少 DataProtection KeysPath 配置");
+if (!System.IO.Path.IsPathRooted(dataProtectionKeysPath))
+{
+    dataProtectionKeysPath = System.IO.Path.GetFullPath(
+        System.IO.Path.Combine(builder.Environment.ContentRootPath, dataProtectionKeysPath));
+}
+
+System.IO.Directory.CreateDirectory(dataProtectionKeysPath);
 builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new System.IO.DirectoryInfo(dataProtectionKeysPath))
     .SetApplicationName("AiInterview");

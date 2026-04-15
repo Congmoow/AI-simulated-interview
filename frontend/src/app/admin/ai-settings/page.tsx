@@ -51,6 +51,12 @@ const DEFAULT_FORM: FormState = {
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
 };
 
+const LEGACY_QWEN_BASE_URLS = new Set([
+  "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+  "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
+]);
+
 export default function AiSettingsPage() {
   const accessToken = useAuthStore((state) => state.accessToken);
   const hydrated = useAuthStore((state) => state.hydrated);
@@ -86,9 +92,13 @@ export default function AiSettingsPage() {
       try {
         const data = await getAiSettings();
         const providerValue = getAiProviderOption(data.provider)?.value ?? "openai_compatible";
+        const normalizedBaseUrl =
+          providerValue === "qwen" && LEGACY_QWEN_BASE_URLS.has(data.baseUrl)
+            ? "https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1"
+            : data.baseUrl;
         setForm({
           provider: providerValue,
-          baseUrl: data.baseUrl,
+          baseUrl: normalizedBaseUrl,
           model: data.model,
           apiKey: "",
           isEnabled: data.isEnabled,
@@ -304,6 +314,11 @@ export default function AiSettingsPage() {
           <p className="text-caption">
             留空表示保留当前 API Key，不会清空已保存的 key；只有输入新的非空 key，保存时才会传给后端。
           </p>
+          {maskedKey === "Reques...500" ? (
+            <p className="text-sm text-error">
+              当前已保存的 key 看起来不是有效 API Key，而是一段旧错误消息。请重新输入真实的 DashScope API Key 后再保存。
+            </p>
+          ) : null}
           <p className="text-caption">
             测试连接时，如果当前输入了新的 key，会优先使用当前输入值；如果留空，则使用后端已保存的 key 测试连接。
           </p>
