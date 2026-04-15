@@ -51,12 +51,6 @@ const DEFAULT_FORM: FormState = {
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
 };
 
-const LEGACY_QWEN_BASE_URLS = new Set([
-  "https://dashscope.aliyuncs.com/compatible-mode/v1",
-  "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-  "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
-]);
-
 export default function AiSettingsPage() {
   const accessToken = useAuthStore((state) => state.accessToken);
   const hydrated = useAuthStore((state) => state.hydrated);
@@ -92,13 +86,9 @@ export default function AiSettingsPage() {
       try {
         const data = await getAiSettings();
         const providerValue = getAiProviderOption(data.provider)?.value ?? "openai_compatible";
-        const normalizedBaseUrl =
-          providerValue === "qwen" && LEGACY_QWEN_BASE_URLS.has(data.baseUrl)
-            ? "https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1"
-            : data.baseUrl;
         setForm({
           provider: providerValue,
-          baseUrl: normalizedBaseUrl,
+          baseUrl: data.baseUrl,
           model: data.model,
           apiKey: "",
           isEnabled: data.isEnabled,

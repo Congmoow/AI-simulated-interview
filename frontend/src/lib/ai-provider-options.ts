@@ -33,8 +33,8 @@ export const AI_PROVIDER_OPTIONS: AiProviderOption[] = [
   {
     value: "qwen",
     label: "阿里云百炼 Qwen",
-    baseUrl: "https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1",
-    description: "阿里云百炼 Qwen 官方 OpenAI 兼容接口。当前默认填充香港区域地址；如果你使用北京、新加坡或美国区域，可手动改写 Base URL。",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    description: "阿里云百炼 Qwen 官方 OpenAI 兼容接口。默认填充通用兼容域名；如果你接入专用区域或代理网关，可手动改写 Base URL。",
   },
   {
     value: "openai_compatible",
