@@ -1,16 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getPositions } from "@/services/catalog-service";
 import { getCurrentUser } from "@/services/auth-service";
+import { createInterview } from "@/services/interview-service";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ErrorState, LoadingState } from "@/components/ui/state-panel";
 import { useAuthStore } from "@/stores/auth-store";
 import { useAuthModalStore } from "@/stores/auth-modal-store";
 import { RequireLoginState } from "@/components/auth/require-login-state";
+import { useRequireAuth } from "@/hooks/use-require-auth";
+import {
+  buildCreateInterviewPayload,
+  createSingleFlight,
+  getInterviewTargetUrl,
+} from "@/features/interview/direct-start";
+import { getTagIconUrl } from "@/utils/icon-utils";
 import { writeStoredAuth } from "@/utils/storage";
+import { getRequestErrorMessage } from "@/utils/request-error";
 import type { CurrentUser, PositionSummary } from "@/types/api";
 
 export default function DashboardPage() {
@@ -20,10 +29,37 @@ export default function DashboardPage() {
   const openLogin = useAuthModalStore((state) => state.openLogin);
   const user = useAuthStore((state) => state.user);
   const setSession = useAuthStore((state) => state.setSession);
+  const requireAuth = useRequireAuth();
+
   const [profile, setProfile] = useState<CurrentUser | null>(user);
   const [positions, setPositions] = useState<PositionSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [startError, setStartError] = useState<string | null>(null);
+  const [startingPositionCode, setStartingPositionCode] = useState<string | null>(null);
+
+  const createInterviewOnceRef = useRef<
+    ReturnType<typeof createSingleFlight<[string], string>> | null
+  >(null);
+
+  if (!createInterviewOnceRef.current) {
+    createInterviewOnceRef.current = createSingleFlight(async (positionCode: string) => {
+      setStartingPositionCode(positionCode);
+      setStartError(null);
+      try {
+        const response = await createInterview(
+          buildCreateInterviewPayload(positionCode, "standard"),
+        );
+        router.push(getInterviewTargetUrl(response.interviewId));
+        return response.interviewId;
+      } catch (requestError) {
+        setStartError(getRequestErrorMessage(requestError, "创建面试失败"));
+        throw requestError;
+      } finally {
+        setStartingPositionCode(null);
+      }
+    });
+  }
 
   useEffect(() => {
     if (!hydrated) {
@@ -56,12 +92,16 @@ export default function DashboardPage() {
           user: currentUser,
         });
       } catch (requestError) {
-        setError(requestError instanceof Error ? requestError.message : "仪表盘加载失败");
+        setLoadError(getRequestErrorMessage(requestError, "仪表盘加载失败"));
       } finally {
         setLoading(false);
       }
     })();
-  }, [accessToken, hydrated, openLogin, router, setSession, user]);
+  }, [accessToken, hydrated, openLogin, setSession]);
+
+  function handleStartPosition(positionCode: string) {
+    void createInterviewOnceRef.current?.(positionCode).catch(() => undefined);
+  }
 
   if (!hydrated) {
     return <LoadingState label="正在准备仪表盘..." />;
@@ -75,8 +115,8 @@ export default function DashboardPage() {
     return <LoadingState label="正在准备仪表盘..." />;
   }
 
-  if (error) {
-    return <ErrorState description={error} />;
+  if (loadError) {
+    return <ErrorState description={loadError} />;
   }
 
   return (
@@ -89,7 +129,7 @@ export default function DashboardPage() {
               {profile?.username}，今天继续把岗位准备推进一格。
             </h2>
             <p className="text-caption max-w-[720px] text-[length:var(--token-font-size-lg)]">
-              你可以直接选择岗位开始新一场模拟面试，也可以进入历史趋势查看最近表现变化。
+              你可以直接选择岗位开始一场新的模拟面试，也可以进入历史趋势查看最近表现变化。
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -117,6 +157,9 @@ export default function DashboardPage() {
           </div>
         </Card>
       </section>
+
+      {startError ? <ErrorState description={startError} /> : null}
+
       <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
         {positions.map((position) => (
           <Card className="flex h-full flex-col justify-between gap-5" key={position.code}>
@@ -127,19 +170,37 @@ export default function DashboardPage() {
             </div>
             <div className="space-y-4">
               <div className="flex flex-wrap gap-2">
-                {position.tags.map((tag) => (
-                  <span
-                    className="rounded-full bg-[rgba(17,24,39,0.05)] px-3 py-2 text-xs font-semibold"
-                    key={tag}
-                  >
-                    {tag}
-                  </span>
-                ))}
+                {position.tags.map((tag) => {
+                  const iconUrl = getTagIconUrl(tag);
+                  return (
+                    <span
+                      className="flex items-center gap-1.5 rounded-full bg-[rgba(17,24,39,0.05)] px-3 py-2 text-xs font-semibold"
+                      key={tag}
+                    >
+                      {iconUrl ? (
+                        <img
+                          alt=""
+                          className="h-4 w-4 shrink-0 object-contain"
+                          src={iconUrl}
+                        />
+                      ) : null}
+                      {tag}
+                    </span>
+                  );
+                })}
               </div>
               <div className="flex items-center justify-between">
                 <p className="text-caption">题量 {position.questionCount}</p>
-                <Button onClick={() => router.push(`/interview?positionCode=${position.code}`)}>
-                  进入该岗位
+                <Button
+                  disabled={Boolean(startingPositionCode)}
+                  onClick={() =>
+                    requireAuth({
+                      onAuthed: () => handleStartPosition(position.code),
+                    })
+                  }
+                  type="button"
+                >
+                  {startingPositionCode === position.code ? "创建中..." : "开始面试"}
                 </Button>
               </div>
             </div>

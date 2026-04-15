@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getPositions } from "@/services/catalog-service";
 import {
@@ -17,6 +17,14 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useAuthModalStore } from "@/stores/auth-modal-store";
 import { RequireLoginState } from "@/components/auth/require-login-state";
 import { useRequireAuth } from "@/hooks/use-require-auth";
+import {
+  buildCreateInterviewPayload,
+  createSingleFlight,
+  getInterviewEntryMode,
+  getInterviewTargetUrl,
+} from "@/features/interview/direct-start";
+import { getTagIconUrl } from "@/utils/icon-utils";
+import { getRequestErrorMessage } from "@/utils/request-error";
 import type { InterviewCurrentDetail, PositionSummary } from "@/types/api";
 
 export function InterviewClient() {
@@ -28,6 +36,7 @@ export function InterviewClient() {
   const requireAuth = useRequireAuth();
   const interviewId = searchParams.get("interviewId");
   const positionFromQuery = searchParams.get("positionCode");
+  const legacyInterviewMode = searchParams.get("interviewMode") ?? "standard";
 
   const [positions, setPositions] = useState<PositionSummary[]>([]);
   const [selectedPosition, setSelectedPosition] = useState(positionFromQuery ?? "");
@@ -35,22 +44,75 @@ export function InterviewClient() {
   const [answerText, setAnswerText] = useState("");
   const [interviewMode, setInterviewMode] = useState("standard");
   const [loading, setLoading] = useState(true);
+  const [startingPositionCode, setStartingPositionCode] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const autoCreateAttemptRef = useRef<string | null>(null);
+  const createInterviewOnceRef = useRef<
+    ReturnType<typeof createSingleFlight<[string, string], string>> | null
+  >(null);
+
+  const entryMode = getInterviewEntryMode({
+    interviewId,
+    positionCode: positionFromQuery,
+  });
+  const showPositionCards = entryMode === "choose-position";
 
   const latestRound = useMemo(
     () => detail?.rounds[detail.rounds.length - 1] ?? null,
     [detail],
   );
 
-  function navigateTo(targetUrl: string) {
-    if (typeof window !== "undefined") {
-      window.location.assign(targetUrl);
-      return;
-    }
-
-    router.replace(targetUrl);
+  if (!createInterviewOnceRef.current) {
+    createInterviewOnceRef.current = createSingleFlight(
+      async (positionCode: string, mode: string) => {
+        setStartingPositionCode(positionCode);
+        setError(null);
+        try {
+          const response = await createInterview(
+            buildCreateInterviewPayload(positionCode, mode),
+          );
+          router.push(getInterviewTargetUrl(response.interviewId));
+          return response.interviewId;
+        } catch (requestError) {
+          setError(
+            getRequestErrorMessage(
+              requestError,
+              "创建面试失败",
+            ),
+          );
+          throw requestError;
+        } finally {
+          setStartingPositionCode(null);
+        }
+      },
+    );
   }
+
+  const navigateTo = useCallback(
+    (targetUrl: string) => {
+      if (typeof window !== "undefined") {
+        window.location.assign(targetUrl);
+        return;
+      }
+
+      router.replace(targetUrl);
+    },
+    [router],
+  );
+
+  const startPositionInterview = useCallback(
+    (positionCode: string, mode = interviewMode) => {
+      if (!positionCode) {
+        setError("请先选择岗位");
+        return;
+      }
+
+      void createInterviewOnceRef.current?.(positionCode, mode).catch(() => undefined);
+    },
+    [interviewMode],
+  );
 
   useEffect(() => {
     if (!hydrated) {
@@ -58,7 +120,11 @@ export function InterviewClient() {
     }
 
     if (!accessToken) {
-      openLogin({ type: "navigate", target: "/interview" });
+      const targetUrl =
+        typeof window !== "undefined"
+          ? `${window.location.pathname}${window.location.search}`
+          : "/interview";
+      openLogin({ type: "navigate", target: targetUrl });
       return;
     }
 
@@ -68,12 +134,12 @@ export function InterviewClient() {
         setPositions(positionList);
         setSelectedPosition((current) => current || positionList[0]?.code || "");
       } catch (requestError) {
-        setError(requestError instanceof Error ? requestError.message : "岗位加载失败");
+        setError(getRequestErrorMessage(requestError, "岗位加载失败"));
       } finally {
         setLoading(false);
       }
     })();
-  }, [accessToken, hydrated, openLogin, router]);
+  }, [accessToken, hydrated, openLogin]);
 
   useEffect(() => {
     if (!interviewId) {
@@ -108,45 +174,49 @@ export function InterviewClient() {
         await connection.start();
         await connection.invoke("JoinInterview", { interviewId });
       } catch {
-        // MVP 阶段失败时退化到轮询式刷新，不阻塞页面使用。
+        return;
       }
     })();
 
     return () => {
       void stopInterviewHub(connection);
     };
-  }, [accessToken, hydrated, interviewId, router]);
+  }, [accessToken, hydrated, interviewId, navigateTo]);
+
+  useEffect(() => {
+    if (!hydrated || !accessToken) {
+      return;
+    }
+
+    if (entryMode !== "auto-create" || !positionFromQuery) {
+      autoCreateAttemptRef.current = null;
+      return;
+    }
+
+    if (autoCreateAttemptRef.current === positionFromQuery) {
+      return;
+    }
+
+    autoCreateAttemptRef.current = positionFromQuery;
+    startPositionInterview(positionFromQuery, legacyInterviewMode);
+  }, [
+    accessToken,
+    entryMode,
+    hydrated,
+    legacyInterviewMode,
+    positionFromQuery,
+    startPositionInterview,
+  ]);
 
   async function refreshInterview(targetInterviewId: string) {
     try {
       const response = await getInterview(targetInterviewId);
       setDetail(response);
+      setSelectedPosition(response.positionCode);
+      setInterviewMode(response.interviewMode);
       setError(null);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "面试详情加载失败");
-    }
-  }
-
-  async function handleCreateInterview() {
-    if (!selectedPosition) {
-      setError("请先选择岗位");
-      return;
-    }
-
-    setSubmitting(true);
-    setError(null);
-    try {
-      const response = await createInterview({
-        positionCode: selectedPosition,
-        interviewMode,
-        questionTypes: ["technical", "project", "scenario"],
-        roundCount: 5,
-      });
-      navigateTo(`/interview?interviewId=${response.interviewId}`);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "创建面试失败");
-    } finally {
-      setSubmitting(false);
+      setError(getRequestErrorMessage(requestError, "面试详情加载失败"));
     }
   }
 
@@ -165,7 +235,7 @@ export function InterviewClient() {
       setAnswerText("");
       await refreshInterview(interviewId);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "提交回答失败");
+      setError(getRequestErrorMessage(requestError, "提交回答失败"));
     } finally {
       setSubmitting(false);
     }
@@ -181,7 +251,7 @@ export function InterviewClient() {
       const response = await finishInterview(interviewId);
       navigateTo(`/report/${response.interviewId}`);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "结束面试失败");
+      setError(getRequestErrorMessage(requestError, "结束面试失败"));
     } finally {
       setSubmitting(false);
     }
@@ -197,6 +267,112 @@ export function InterviewClient() {
 
   if (loading) {
     return <LoadingState label="正在初始化面试环境..." />;
+  }
+
+  if (entryMode === "auto-create" && !interviewId) {
+    return (
+      <div className="space-y-4">
+        {error ? (
+          <>
+            <ErrorState description={error} />
+            <Button
+              disabled={Boolean(startingPositionCode)}
+              onClick={() => {
+                if (!positionFromQuery) {
+                  return;
+                }
+                autoCreateAttemptRef.current = null;
+                startPositionInterview(positionFromQuery, legacyInterviewMode);
+              }}
+              type="button"
+            >
+              {startingPositionCode ? "正在创建..." : "重试创建面试"}
+            </Button>
+          </>
+        ) : (
+          <LoadingState label="正在创建面试..." />
+        )}
+      </div>
+    );
+  }
+
+  if (showPositionCards) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-start justify-between gap-6">
+          <div className="space-y-3">
+            <span className="section-label">模拟面试</span>
+            <h2 className="display-title !text-[clamp(2rem,3vw,3.4rem)]">
+              选择一个岗位，直接进入正式面试
+            </h2>
+            <p className="text-caption max-w-[720px] text-[length:var(--token-font-size-lg)]">
+              点击岗位卡片后会直接创建面试并进入正式问答页，不再经过旧的确认中间页。
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <label className="text-sm font-semibold whitespace-nowrap">模式</label>
+            <select
+              className="input-shell w-auto"
+              onChange={(event) => setInterviewMode(event.target.value)}
+              value={interviewMode}
+            >
+              <option value="friendly">friendly</option>
+              <option value="standard">standard</option>
+              <option value="stress">stress</option>
+            </select>
+          </div>
+        </div>
+        {error ? <ErrorState description={error} /> : null}
+        <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+          {positions.map((position) => (
+            <Card className="flex h-full flex-col justify-between gap-5" key={position.code}>
+              <div className="space-y-3">
+                <span className="section-label">{position.code}</span>
+                <h3 className="section-title">{position.name}</h3>
+                <p className="text-caption">{position.description}</p>
+              </div>
+              <div className="space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  {position.tags.map((tag) => {
+                    const iconUrl = getTagIconUrl(tag);
+                    return (
+                      <span
+                        className="flex items-center gap-1.5 rounded-full bg-[rgba(17,24,39,0.05)] px-3 py-2 text-xs font-semibold"
+                        key={tag}
+                      >
+                        {iconUrl ? (
+                          <img
+                            alt=""
+                            className="h-4 w-4 shrink-0 object-contain"
+                            src={iconUrl}
+                          />
+                        ) : null}
+                        {tag}
+                      </span>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center justify-between">
+                  <p className="text-caption">题量 {position.questionCount}</p>
+                  <Button
+                    disabled={Boolean(startingPositionCode)}
+                    onClick={() =>
+                      requireAuth({
+                        onAuthed: () =>
+                          startPositionInterview(position.code, interviewMode),
+                      })
+                    }
+                    type="button"
+                  >
+                    {startingPositionCode === position.code ? "创建中..." : "开始面试"}
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </section>
+      </div>
+    );
   }
 
   return (
@@ -232,11 +408,7 @@ export function InterviewClient() {
               <option value="stress">stress</option>
             </select>
           </div>
-          {!interviewId ? (
-            <Button disabled={submitting} onClick={() => requireAuth({ onAuthed: handleCreateInterview })} type="button">
-              {submitting ? "创建中..." : "创建一场新面试"}
-            </Button>
-          ) : (
+          {interviewId ? (
             <Button
               disabled={submitting}
               onClick={handleFinishInterview}
@@ -245,7 +417,7 @@ export function InterviewClient() {
             >
               主动结束面试
             </Button>
-          )}
+          ) : null}
         </div>
         {detail ? (
           <div className="surface-muted space-y-3 p-4">
@@ -261,7 +433,7 @@ export function InterviewClient() {
         {error ? <ErrorState description={error} /> : null}
         {!interviewId ? (
           <EmptyState
-            description="先从左侧选择岗位并创建面试。创建后会立即拿到首题，并进入后续追问或下一题流转。"
+            description="请先从岗位列表发起面试，创建成功后会直接进入正式问答页。"
             title="还没有进行中的面试"
           />
         ) : detail && latestRound ? (
@@ -282,14 +454,23 @@ export function InterviewClient() {
               <textarea
                 className="input-shell min-h-[180px]"
                 onChange={(event) => setAnswerText(event.target.value)}
-                placeholder="请输入你的回答。MVP 阶段先走文本回答链路。"
+                placeholder="请输入你的回答。当前版本先走文本回答链路。"
                 value={answerText}
               />
               <div className="flex flex-wrap gap-3">
-                <Button disabled={submitting || !answerText.trim()} onClick={handleSubmitAnswer} type="button">
+                <Button
+                  disabled={submitting || !answerText.trim()}
+                  onClick={handleSubmitAnswer}
+                  type="button"
+                >
                   {submitting ? "提交中..." : "提交回答"}
                 </Button>
-                <Button disabled={submitting} onClick={handleFinishInterview} type="button" variant="secondary">
+                <Button
+                  disabled={submitting}
+                  onClick={handleFinishInterview}
+                  type="button"
+                  variant="secondary"
+                >
                   结束并生成报告
                 </Button>
               </div>
@@ -303,10 +484,14 @@ export function InterviewClient() {
                       <p className="font-semibold">
                         第 {round.roundNumber} 轮 · {round.question.type}
                       </p>
-                      <span className="text-caption">{round.answeredAt ? "已回答" : "待回答"}</span>
+                      <span className="text-caption">
+                        {round.answeredAt ? "已回答" : "待回答"}
+                      </span>
                     </div>
                     <p>{round.question.title}</p>
-                    <p className="text-caption">{round.userAnswer ?? "尚未提交回答"}</p>
+                    <p className="text-caption">
+                      {round.userAnswer ?? "尚未提交回答"}
+                    </p>
                     {round.aiFollowUp ? (
                       <p className="rounded-[var(--token-radius-lg)] bg-[rgba(139,92,246,0.08)] px-4 py-3 text-sm">
                         AI 追问：{round.aiFollowUp}
