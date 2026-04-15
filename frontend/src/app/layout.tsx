@@ -1,6 +1,8 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import "./globals.css";
 import { AppShell } from "@/components/layout/app-shell";
+import { GlobalModals } from "@/components/layout/global-modals";
 
 export const metadata: Metadata = {
   title: "AI 模拟面试与能力提升软件",
@@ -16,6 +18,9 @@ export default function RootLayout({
     <html lang="zh-CN">
       <body className="shell-background">
         <AppShell>{children}</AppShell>
+        <Suspense fallback={null}>
+          <GlobalModals />
+        </Suspense>
       </body>
     </html>
   );

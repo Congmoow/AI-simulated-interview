@@ -8,6 +8,8 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-pane
 import { createQuestion, getKnowledgeDocuments, uploadKnowledgeDocument } from "@/services/admin-service";
 import { getPositions } from "@/services/catalog-service";
 import { useAuthStore } from "@/stores/auth-store";
+import { useAuthModalStore } from "@/stores/auth-modal-store";
+import { RequireLoginState } from "@/components/auth/require-login-state";
 import type { KnowledgeDocumentItem, PositionSummary } from "@/types/api";
 
 export default function AdminPage() {
@@ -15,6 +17,7 @@ export default function AdminPage() {
   const accessToken = useAuthStore((state) => state.accessToken);
   const hydrated = useAuthStore((state) => state.hydrated);
   const user = useAuthStore((state) => state.user);
+  const openLogin = useAuthModalStore((state) => state.openLogin);
   const [positions, setPositions] = useState<PositionSummary[]>([]);
   const [documents, setDocuments] = useState<KnowledgeDocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,7 +45,7 @@ export default function AdminPage() {
     }
 
     if (!accessToken) {
-      router.replace("/login");
+      openLogin({ type: "navigate", target: "/admin" });
       return;
     }
 
@@ -73,7 +76,7 @@ export default function AdminPage() {
         setLoading(false);
       }
     })();
-  }, [accessToken, hydrated, router, user]);
+  }, [accessToken, hydrated, openLogin, router, user]);
 
   async function handleCreateQuestion() {
     setSubmitting(true);
@@ -131,7 +134,15 @@ export default function AdminPage() {
     }
   }
 
-  if (!hydrated || loading) {
+  if (!hydrated) {
+    return <LoadingState label="正在准备管理后台..." />;
+  }
+
+  if (!accessToken) {
+    return <RequireLoginState />;
+  }
+
+  if (loading) {
     return <LoadingState label="正在准备管理后台..." />;
   }
 
@@ -151,6 +162,22 @@ export default function AdminPage() {
   return (
     <div className="space-y-6">
       {error ? <p className="text-sm text-error">{error}</p> : null}
+      <Card className="space-y-4">
+        <span className="section-label">AI 配置</span>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="font-semibold text-[length:var(--token-font-size-md)] text-[var(--token-color-text-primary)]">
+              配置真实 LLM 的报告生成能力
+            </p>
+            <p className="text-caption mt-1">
+              前往 AI 配置页面填写 Base URL、Model 和 API Key，并测试真实 LLM 连接状态。
+            </p>
+          </div>
+          <Button onClick={() => void router.push("/admin/ai-settings")} type="button" variant="secondary">
+            前往 AI 配置
+          </Button>
+        </div>
+      </Card>
       <section className="grid gap-6 xl:grid-cols-2">
         <Card className="space-y-4">
           <span className="section-label">创建题目</span>

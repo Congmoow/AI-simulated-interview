@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { HomeAuthButton } from "@/app/_components/home-auth-button";
 
 export default function HomePage() {
   return (
@@ -12,9 +13,7 @@ export default function HomePage() {
         </p>
       </div>
       <div className="flex flex-wrap gap-3">
-        <Link className="primary-button" href="/login">
-          进入登录页
-        </Link>
+        <HomeAuthButton />
         <Link className="secondary-button" href="/dashboard">
           查看仪表盘
         </Link>

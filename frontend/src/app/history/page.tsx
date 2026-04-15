@@ -9,12 +9,15 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-pane
 import { getInterviewHistory } from "@/services/interview-service";
 import { getGrowth } from "@/services/report-service";
 import { useAuthStore } from "@/stores/auth-store";
+import { useAuthModalStore } from "@/stores/auth-modal-store";
+import { RequireLoginState } from "@/components/auth/require-login-state";
 import type { GrowthDetail, InterviewHistoryItem } from "@/types/api";
 
 export default function HistoryPage() {
   const router = useRouter();
   const accessToken = useAuthStore((state) => state.accessToken);
   const hydrated = useAuthStore((state) => state.hydrated);
+  const openLogin = useAuthModalStore((state) => state.openLogin);
   const [history, setHistory] = useState<InterviewHistoryItem[]>([]);
   const [growth, setGrowth] = useState<GrowthDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -26,7 +29,7 @@ export default function HistoryPage() {
     }
 
     if (!accessToken) {
-      router.replace("/login");
+      openLogin({ type: "navigate", target: "/history" });
       return;
     }
 
@@ -44,9 +47,17 @@ export default function HistoryPage() {
         setLoading(false);
       }
     })();
-  }, [accessToken, hydrated, router]);
+  }, [accessToken, hydrated, openLogin, router]);
 
-  if (!hydrated || loading) {
+  if (!hydrated) {
+    return <LoadingState label="正在加载历史记录与成长趋势..." />;
+  }
+
+  if (!accessToken) {
+    return <RequireLoginState />;
+  }
+
+  if (loading) {
     return <LoadingState label="正在加载历史记录与成长趋势..." />;
   }
 

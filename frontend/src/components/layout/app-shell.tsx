@@ -1,16 +1,26 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo } from "react";
 import { SideNav } from "@/components/layout/side-nav";
-import { useAuthStore } from "@/stores/auth-store";
-import { writeStoredAuth } from "@/utils/storage";
+
+const PAGE_LABELS: Record<string, string> = {
+  "/dashboard": "仪表盘",
+  "/interview": "模拟面试",
+  "/report": "报告中心",
+  "/history": "历史趋势",
+  "/admin": "管理后台",
+};
+
+function getPageLabel(pathname: string): string {
+  const match = Object.entries(PAGE_LABELS).find(
+    ([key]) => pathname === key || (key !== "/dashboard" && pathname.startsWith(key)),
+  );
+  return match?.[1] ?? "首页";
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const user = useAuthStore((state) => state.user);
-  const clearSession = useAuthStore((state) => state.clearSession);
   const isAuthPage = useMemo(() => pathname.startsWith("/login"), [pathname]);
 
   if (isAuthPage) {
@@ -18,46 +28,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-[1600px] gap-6 px-4 py-6 lg:px-6">
-      <div className="hidden lg:block">
-        <SideNav />
-      </div>
-      <div className="flex min-h-[calc(100vh-3rem)] min-w-0 flex-1 flex-col gap-6">
-        <header className="surface-card flex flex-col gap-4 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <span className="section-label">系统导航</span>
-            <h1 className="mt-2 text-[length:var(--token-font-size-2xl)] font-semibold">
-              AI 模拟面试与能力提升软件
-            </h1>
-            <p className="text-caption mt-2">
-              前端只负责展示与交互，核心业务链路统一由 ASP.NET Core API 编排。
-            </p>
+    <div className="min-h-screen p-4">
+      <div className="mx-auto flex w-full max-w-[1440px] min-h-[calc(100vh-2rem)] gap-4">
+        <div className="hidden lg:flex">
+          <SideNav />
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-6">
+          <div className="flex items-center gap-2 px-1 pt-1 text-[length:var(--token-font-size-sm)]">
+            <span className="text-[var(--token-color-text-tertiary)]">Simulate OS</span>
+            <span className="text-[var(--token-color-text-tertiary)]">/</span>
+            <span className="font-medium text-[var(--token-color-text-secondary)]">{getPageLabel(pathname)}</span>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="surface-muted px-4 py-3">
-              <p className="text-caption">
-                {user ? `${user.username} · ${user.role}` : "未登录"}
-              </p>
-            </div>
-            {user ? (
-              <button
-                className="secondary-button"
-                onClick={() => {
-                  clearSession();
-                  writeStoredAuth(null);
-                }}
-                type="button"
-              >
-                退出登录
-              </button>
-            ) : (
-              <Link className="primary-button" href="/login">
-                去登录
-              </Link>
-            )}
-          </div>
-        </header>
-        <main className="page-enter flex-1">{children}</main>
+          <main className="page-enter min-w-0 flex-1 rounded-3xl border border-[var(--token-color-border-default)] bg-[var(--token-color-bg-surface)] shadow-[var(--token-shadow-modal)] p-6">{children}</main>
+        </div>
       </div>
     </div>
   );

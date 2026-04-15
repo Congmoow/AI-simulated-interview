@@ -6,12 +6,15 @@ import { getReport, getResources, getTrainingPlan } from "@/services/report-serv
 import { Card } from "@/components/ui/card";
 import { ErrorState, LoadingState } from "@/components/ui/state-panel";
 import { useAuthStore } from "@/stores/auth-store";
+import { useAuthModalStore } from "@/stores/auth-modal-store";
+import { RequireLoginState } from "@/components/auth/require-login-state";
 import type { ReportDetail, ResourceRecommendation, TrainingPlan } from "@/types/api";
 
 export function ReportClient({ interviewId }: { interviewId: string }) {
   const router = useRouter();
   const accessToken = useAuthStore((state) => state.accessToken);
   const hydrated = useAuthStore((state) => state.hydrated);
+  const openLogin = useAuthModalStore((state) => state.openLogin);
   const [report, setReport] = useState<ReportDetail | null>(null);
   const [resources, setResources] = useState<ResourceRecommendation[]>([]);
   const [trainingPlan, setTrainingPlan] = useState<TrainingPlan | null>(null);
@@ -24,7 +27,7 @@ export function ReportClient({ interviewId }: { interviewId: string }) {
     }
 
     if (!accessToken) {
-      router.replace("/login");
+      openLogin({ type: "navigate", target: `/report/${interviewId}` });
       return;
     }
 
@@ -44,9 +47,17 @@ export function ReportClient({ interviewId }: { interviewId: string }) {
         setLoading(false);
       }
     })();
-  }, [accessToken, hydrated, interviewId, router]);
+  }, [accessToken, hydrated, interviewId, openLogin, router]);
 
-  if (!hydrated || loading) {
+  if (!hydrated) {
+    return <LoadingState label="正在生成并加载报告..." />;
+  }
+
+  if (!accessToken) {
+    return <RequireLoginState />;
+  }
+
+  if (loading) {
     return <LoadingState label="正在生成并加载报告..." />;
   }
 

@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ErrorState, LoadingState } from "@/components/ui/state-panel";
 import { useAuthStore } from "@/stores/auth-store";
+import { useAuthModalStore } from "@/stores/auth-modal-store";
+import { RequireLoginState } from "@/components/auth/require-login-state";
 import { writeStoredAuth } from "@/utils/storage";
 import type { CurrentUser, PositionSummary } from "@/types/api";
 
@@ -15,6 +17,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const accessToken = useAuthStore((state) => state.accessToken);
   const hydrated = useAuthStore((state) => state.hydrated);
+  const openLogin = useAuthModalStore((state) => state.openLogin);
   const user = useAuthStore((state) => state.user);
   const setSession = useAuthStore((state) => state.setSession);
   const [profile, setProfile] = useState<CurrentUser | null>(user);
@@ -28,7 +31,7 @@ export default function DashboardPage() {
     }
 
     if (!accessToken) {
-      router.replace("/login");
+      openLogin({ type: "navigate", target: "/dashboard" });
       return;
     }
 
@@ -58,9 +61,17 @@ export default function DashboardPage() {
         setLoading(false);
       }
     })();
-  }, [accessToken, hydrated, router, setSession, user]);
+  }, [accessToken, hydrated, openLogin, router, setSession, user]);
 
-  if (!hydrated || loading) {
+  if (!hydrated) {
+    return <LoadingState label="正在准备仪表盘..." />;
+  }
+
+  if (!accessToken) {
+    return <RequireLoginState />;
+  }
+
+  if (loading) {
     return <LoadingState label="正在准备仪表盘..." />;
   }
 

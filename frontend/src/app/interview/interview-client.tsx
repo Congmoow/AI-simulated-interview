@@ -14,6 +14,9 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-panel";
 import { useAuthStore } from "@/stores/auth-store";
+import { useAuthModalStore } from "@/stores/auth-modal-store";
+import { RequireLoginState } from "@/components/auth/require-login-state";
+import { useRequireAuth } from "@/hooks/use-require-auth";
 import type { InterviewCurrentDetail, PositionSummary } from "@/types/api";
 
 export function InterviewClient() {
@@ -21,6 +24,8 @@ export function InterviewClient() {
   const searchParams = useSearchParams();
   const accessToken = useAuthStore((state) => state.accessToken);
   const hydrated = useAuthStore((state) => state.hydrated);
+  const openLogin = useAuthModalStore((state) => state.openLogin);
+  const requireAuth = useRequireAuth();
   const interviewId = searchParams.get("interviewId");
   const positionFromQuery = searchParams.get("positionCode");
 
@@ -53,7 +58,7 @@ export function InterviewClient() {
     }
 
     if (!accessToken) {
-      router.replace("/login");
+      openLogin({ type: "navigate", target: "/interview" });
       return;
     }
 
@@ -68,7 +73,7 @@ export function InterviewClient() {
         setLoading(false);
       }
     })();
-  }, [accessToken, hydrated, router]);
+  }, [accessToken, hydrated, openLogin, router]);
 
   useEffect(() => {
     if (!interviewId) {
@@ -182,7 +187,15 @@ export function InterviewClient() {
     }
   }
 
-  if (!hydrated || loading) {
+  if (!hydrated) {
+    return <LoadingState label="正在初始化面试环境..." />;
+  }
+
+  if (!accessToken) {
+    return <RequireLoginState />;
+  }
+
+  if (loading) {
     return <LoadingState label="正在初始化面试环境..." />;
   }
 
@@ -220,7 +233,7 @@ export function InterviewClient() {
             </select>
           </div>
           {!interviewId ? (
-            <Button disabled={submitting} onClick={handleCreateInterview} type="button">
+            <Button disabled={submitting} onClick={() => requireAuth({ onAuthed: handleCreateInterview })} type="button">
               {submitting ? "创建中..." : "创建一场新面试"}
             </Button>
           ) : (

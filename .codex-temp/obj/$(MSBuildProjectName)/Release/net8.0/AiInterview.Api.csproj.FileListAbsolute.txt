@@ -1,0 +1,9 @@
+D:\Desktop\AI-simulated-interview\.codex-temp\obj\$(MSBuildProjectName)\Release\net8.0\AiInterview.Api.csproj.AssemblyReference.cache
+D:\Desktop\AI-simulated-interview\.codex-temp\obj\$(MSBuildProjectName)\Release\net8.0\AiInterview.Api.GeneratedMSBuildEditorConfig.editorconfig
+D:\Desktop\AI-simulated-interview\.codex-temp\obj\$(MSBuildProjectName)\Release\net8.0\AiInterview.Api.AssemblyInfoInputs.cache
+D:\Desktop\AI-simulated-interview\.codex-temp\obj\$(MSBuildProjectName)\Release\net8.0\AiInterview.Api.AssemblyInfo.cs
+D:\Desktop\AI-simulated-interview\.codex-temp\obj\$(MSBuildProjectName)\Release\net8.0\AiInterview.Api.csproj.CoreCompileInputs.cache
+D:\Desktop\AI-simulated-interview\.codex-temp\obj\$(MSBuildProjectName)\Release\net8.0\AiInterview.Api.MvcApplicationPartsAssemblyInfo.cs
+D:\Desktop\AI-simulated-interview\.codex-temp\obj\$(MSBuildProjectName)\Release\net8.0\AiInterview.Api.MvcApplicationPartsAssemblyInfo.cache
+D:\Desktop\AI-simulated-interview\.codex-temp\obj\$(MSBuildProjectName)\Release\net8.0\EFCoreNpgsqlPgvector.cs
+D:\Desktop\AI-simulated-interview\.codex-temp\obj\$(MSBuildProjectName)\Release\net8.0\AiInterview.Api.sourcelink.json
