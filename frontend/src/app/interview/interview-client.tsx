@@ -13,6 +13,7 @@ import { createInterviewHub, stopInterviewHub } from "@/services/interview-hub";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-panel";
+import { cn } from "@/lib/cn";
 import { useAuthStore } from "@/stores/auth-store";
 import { useAuthModalStore } from "@/stores/auth-modal-store";
 import { RequireLoginState } from "@/components/auth/require-login-state";
@@ -26,6 +27,24 @@ import {
 import { getTagIconUrl } from "@/utils/icon-utils";
 import { getRequestErrorMessage } from "@/utils/request-error";
 import type { InterviewCurrentDetail, PositionSummary } from "@/types/api";
+
+const INTERVIEW_MODE_OPTIONS = [
+  {
+    value: "friendly",
+    label: "轻松",
+    dotClassName: "bg-emerald-400",
+  },
+  {
+    value: "standard",
+    label: "标准",
+    dotClassName: "bg-slate-400",
+  },
+  {
+    value: "stress",
+    label: "高压",
+    dotClassName: "bg-rose-400",
+  },
+] as const;
 
 export function InterviewClient() {
   const router = useRouter();
@@ -47,6 +66,17 @@ export function InterviewClient() {
   const [startingPositionCode, setStartingPositionCode] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const interviewModeIndex = Math.max(
+    0,
+    INTERVIEW_MODE_OPTIONS.findIndex((option) => option.value === interviewMode),
+  );
+  const interviewModeSliderStyle = {
+    width: `calc((100% - 0.5rem) / ${INTERVIEW_MODE_OPTIONS.length})`,
+    transform: `translateX(${interviewModeIndex * 100}%)`,
+  };
+
+  const startInterviewButtonClassName =
+    "relative overflow-hidden transition-all duration-300 ease-out transform-gpu hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgba(17,24,39,0.18)] active:translate-y-0 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(17,24,39,0.28)] focus-visible:ring-offset-2 focus-visible:ring-offset-white motion-reduce:transform-none motion-reduce:transition-none before:pointer-events-none before:absolute before:inset-0 before:content-[''] before:bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.28),transparent)] before:translate-x-[-120%] before:opacity-0 before:transition-all before:duration-700 hover:before:translate-x-[120%] hover:before:opacity-100";
 
   const autoCreateAttemptRef = useRef<string | null>(null);
   const createInterviewOnceRef = useRef<
@@ -76,12 +106,7 @@ export function InterviewClient() {
           router.push(getInterviewTargetUrl(response.interviewId));
           return response.interviewId;
         } catch (requestError) {
-          setError(
-            getRequestErrorMessage(
-              requestError,
-              "创建面试失败",
-            ),
-          );
+          setError(getRequestErrorMessage(requestError, "创建面试失败"));
           throw requestError;
         } finally {
           setStartingPositionCode(null);
@@ -299,7 +324,7 @@ export function InterviewClient() {
   if (showPositionCards) {
     return (
       <div className="space-y-6">
-        <div className="flex items-start justify-between gap-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-6">
           <div className="space-y-3">
             <span className="section-label">模拟面试</span>
             <h2 className="display-title !text-[clamp(2rem,3vw,3.4rem)]">
@@ -309,23 +334,56 @@ export function InterviewClient() {
               点击岗位卡片后会直接创建面试并进入正式问答页，不再经过旧的确认中间页。
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <label className="text-sm font-semibold whitespace-nowrap">模式</label>
-            <select
-              className="input-shell w-auto"
-              onChange={(event) => setInterviewMode(event.target.value)}
-              value={interviewMode}
-            >
-              <option value="friendly">friendly</option>
-              <option value="standard">standard</option>
-              <option value="stress">stress</option>
-            </select>
+          <div className="w-full shrink-0 md:w-[320px]">
+            <div className="mb-2 flex flex-col items-end gap-0.5 text-right">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[var(--token-color-primary)]">
+                面试难度
+              </p>
+              <p className="text-[11px] text-[var(--token-color-text-secondary)]">节奏与压力</p>
+            </div>
+            <div className="relative overflow-hidden rounded-full bg-[rgba(17,24,39,0.07)] p-1">
+              <div
+                aria-hidden="true"
+                className="absolute inset-y-1 left-1 rounded-full transition-transform duration-300 ease-out motion-reduce:transition-none before:absolute before:inset-y-0 before:left-[8px] before:right-[8px] before:rounded-full before:border before:border-[var(--token-color-border-default)] before:bg-white before:shadow-[0_4px_10px_rgba(17,24,39,0.06)] before:content-['']"
+                style={interviewModeSliderStyle}
+              />
+              <div className="relative grid grid-cols-3">
+                {INTERVIEW_MODE_OPTIONS.map((option) => {
+                  const active = interviewMode === option.value;
+                  return (
+                    <button
+                      aria-pressed={active}
+                      className={cn(
+                        "group relative z-10 inline-flex min-h-[30px] w-full items-center justify-center gap-1.5 rounded-full px-2 py-1 text-left transition-colors duration-300 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(17,24,39,0.16)] focus-visible:ring-offset-2 focus-visible:ring-offset-white motion-reduce:transition-none",
+                        active
+                          ? "text-[var(--token-color-text-primary)]"
+                          : "text-[var(--token-color-text-secondary)] hover:text-[var(--token-color-text-primary)]",
+                      )}
+                      key={option.value}
+                      onClick={() => setInterviewMode(option.value)}
+                      type="button"
+                    >
+                      <span
+                        className={cn(
+                          "h-2 w-2 rounded-full transition-all duration-300",
+                          active ? "bg-[var(--token-color-primary)]" : option.dotClassName,
+                        )}
+                      />
+                      <span className="text-[12px] font-semibold leading-tight">{option.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
         {error ? <ErrorState description={error} /> : null}
         <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
           {positions.map((position) => (
-            <Card className="flex h-full flex-col justify-between gap-5" key={position.code}>
+            <Card
+              className="flex h-full flex-col justify-between gap-5 transition-all duration-300 ease-out hover:-translate-y-1 hover:shadow-[0_18px_45px_rgba(17,24,39,0.12)] hover:border-[rgba(17,24,39,0.12)]"
+              key={position.code}
+            >
               <div className="space-y-3">
                 <span className="section-label">{position.code}</span>
                 <h3 className="section-title">{position.name}</h3>
@@ -355,6 +413,7 @@ export function InterviewClient() {
                 <div className="flex items-center justify-between">
                   <p className="text-caption">题量 {position.questionCount}</p>
                   <Button
+                    className={startInterviewButtonClassName}
                     disabled={Boolean(startingPositionCode)}
                     onClick={() =>
                       requireAuth({

@@ -37,6 +37,8 @@ export default function DashboardPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [startingPositionCode, setStartingPositionCode] = useState<string | null>(null);
+  const startInterviewButtonClassName =
+    "relative overflow-hidden transition-all duration-300 ease-out transform-gpu hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgba(17,24,39,0.18)] active:translate-y-0 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(17,24,39,0.28)] focus-visible:ring-offset-2 focus-visible:ring-offset-white motion-reduce:transform-none motion-reduce:transition-none before:pointer-events-none before:absolute before:inset-0 before:content-[''] before:bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.28),transparent)] before:translate-x-[-120%] before:opacity-0 before:transition-all before:duration-700 hover:before:translate-x-[120%] hover:before:opacity-100";
 
   const createInterviewOnceRef = useRef<
     ReturnType<typeof createSingleFlight<[string], string>> | null
@@ -133,7 +135,12 @@ export default function DashboardPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
-            <Button onClick={() => router.push("/interview")}>开始模拟面试</Button>
+            <Button
+              className={startInterviewButtonClassName}
+              onClick={() => router.push("/interview")}
+            >
+              开始模拟面试
+            </Button>
             <Button onClick={() => router.push("/history")} variant="secondary">
               查看历史趋势
             </Button>
@@ -162,7 +169,10 @@ export default function DashboardPage() {
 
       <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
         {positions.map((position) => (
-          <Card className="flex h-full flex-col justify-between gap-5" key={position.code}>
+          <Card
+            className="flex h-full flex-col justify-between gap-5 transition-all duration-300 ease-out hover:-translate-y-1 hover:shadow-[0_18px_45px_rgba(17,24,39,0.12)] hover:border-[rgba(17,24,39,0.12)]"
+            key={position.code}
+          >
             <div className="space-y-3">
               <span className="section-label">{position.code}</span>
               <h3 className="section-title">{position.name}</h3>
@@ -192,6 +202,7 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between">
                 <p className="text-caption">题量 {position.questionCount}</p>
                 <Button
+                  className={startInterviewButtonClassName}
                   disabled={Boolean(startingPositionCode)}
                   onClick={() =>
                     requireAuth({
