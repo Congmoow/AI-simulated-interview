@@ -3,7 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.schemas.interview import DimensionScore
+from app.schemas.interview import DimensionScore, ScoreRound
 
 
 class GenerateReportRequest(BaseModel):
@@ -11,6 +11,7 @@ class GenerateReportRequest(BaseModel):
     position_code: str = Field(alias="positionCode")
     overall_score: float = Field(alias="overallScore")
     dimension_scores: dict[str, DimensionScore] = Field(default_factory=dict, alias="dimensionScores")
+    rounds: list[ScoreRound] = Field(default_factory=list, alias="rounds")
 
 
 class GenerateReportResponse(BaseModel):

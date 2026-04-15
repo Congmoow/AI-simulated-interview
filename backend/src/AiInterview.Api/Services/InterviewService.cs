@@ -301,38 +301,33 @@ public class InterviewService(
             TotalRounds = interview.TotalRounds
         }, cancellationToken);
 
+        var orderedRounds = interview.Rounds
+            .OrderBy(x => x.RoundNumber)
+            .Select(x => new ScoreAiRoundDto
+            {
+                RoundNumber = x.RoundNumber,
+                QuestionType = x.QuestionType,
+                QuestionTitle = x.QuestionTitle,
+                QuestionContent = x.QuestionContent,
+                Answer = x.UserAnswer,
+                FollowUps = x.AiFollowUps
+            })
+            .ToList();
+
         var score = await aiIntegrationService.ScoreAsync(new ScoreAiRequest
         {
             InterviewId = interview.Id,
             PositionCode = interview.PositionCode,
-            Rounds = interview.Rounds
-                .OrderBy(x => x.RoundNumber)
-                .Select(x => new ScoreAiRoundDto
-                {
-                    RoundNumber = x.RoundNumber,
-                    QuestionType = x.QuestionType,
-                    QuestionTitle = x.QuestionTitle,
-                    QuestionContent = x.QuestionContent,
-                    Answer = x.UserAnswer,
-                    FollowUps = x.AiFollowUps
-                })
-                .ToList()
+            Rounds = orderedRounds
         }, cancellationToken);
 
-        var report = await GenerateReportWithFallbackAsync(interview, score, cancellationToken);
-
-        var resourceRecommendation = await aiIntegrationService.RecommendResourcesAsync(new ResourceRecommendationAiRequest
+        var report = await aiIntegrationService.GenerateReportAsync(new ReportAiRequest
         {
             InterviewId = interview.Id,
             PositionCode = interview.PositionCode,
-            Weaknesses = report.Weaknesses
-        }, cancellationToken);
-
-        var trainingPlan = await aiIntegrationService.GenerateTrainingPlanAsync(new TrainingPlanAiRequest
-        {
-            InterviewId = interview.Id,
-            PositionCode = interview.PositionCode,
-            Weaknesses = report.Weaknesses
+            OverallScore = score.OverallScore,
+            DimensionScores = score.DimensionScores,
+            Rounds = orderedRounds
         }, cancellationToken);
 
         var scoreEntity = new InterviewScore
@@ -364,7 +359,29 @@ public class InterviewService(
 
         await reportRepository.AddOrUpdateScoreAsync(scoreEntity, cancellationToken);
         await reportRepository.AddOrUpdateReportAsync(reportEntity, cancellationToken);
+        await reportRepository.SaveChangesAsync(cancellationToken);
 
+        var savedReport = await reportRepository.GetReportByInterviewIdAsync(interview.Id, cancellationToken) ?? reportEntity;
+
+        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).ReportProgress(new
+        {
+            progress = 100,
+            estimatedTime = 0
+        });
+        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).ReportReady(new
+        {
+            reportId = savedReport.Id
+        });
+
+        return new FinishInterviewResponse
+        {
+            InterviewId = interview.Id,
+            Status = "generating_report",
+            ReportId = savedReport.Id,
+            EstimatedTime = 30
+        };
+
+        #if false
         var recommendedResources = await catalogRepository.GetLearningResourcesAsync(interview.PositionCode, resourceRecommendation.TargetDimensions, 10, cancellationToken);
         var recommendationRecords = new List<RecommendationRecord>
         {
@@ -421,6 +438,7 @@ public class InterviewService(
             ReportId = savedReport.Id,
             EstimatedTime = 30
         };
+        #endif
     }
 
     public async Task<PagedResult<InterviewHistoryItemDto>> GetHistoryAsync(Guid userId, string? positionCode, string? status, DateOnly? startDate, DateOnly? endDate, int page, int pageSize, CancellationToken cancellationToken = default)

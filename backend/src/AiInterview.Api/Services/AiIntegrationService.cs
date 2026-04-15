@@ -9,7 +9,7 @@ using System.Text.Json;
 
 namespace AiInterview.Api.Services;
 
-public class AiIntegrationService(HttpClient httpClient, IOptions<AiServiceOptions> options) : IAiIntegrationService
+public class AiIntegrationService(HttpClient httpClient, IOptions<AiServiceOptions> options, ILogger<AiIntegrationService> logger) : IAiIntegrationService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly AiServiceOptions _options = options.Value;
@@ -74,10 +74,27 @@ public class AiIntegrationService(HttpClient httpClient, IOptions<AiServiceOptio
         using var response = await httpClient.SendAsync(request, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            logger.LogError(
+                "调用 ai-service 失败：path={Path} status_code={StatusCode} body_snippet={BodySnippet}",
+                path,
+                (int)response.StatusCode,
+                SummarizeBody(body));
             throw new AppException(ErrorCodes.ServiceUnavailable, "AI 服务暂不可用", StatusCodes.Status503ServiceUnavailable);
         }
 
         var result = await response.Content.ReadFromJsonAsync<TResponse>(JsonOptions, cancellationToken);
         return result ?? throw new AppException(ErrorCodes.ServiceUnavailable, "AI 服务返回数据为空", StatusCodes.Status503ServiceUnavailable);
+    }
+
+    private static string SummarizeBody(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return string.Empty;
+        }
+
+        var compact = string.Join(' ', body.Split(default(string[]), StringSplitOptions.RemoveEmptyEntries));
+        return compact.Length <= 320 ? compact : compact[..320];
     }
 }

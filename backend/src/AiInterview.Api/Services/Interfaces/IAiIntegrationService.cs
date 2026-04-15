@@ -119,6 +119,7 @@ public class ReportAiRequest
     public string PositionCode { get; set; } = string.Empty;
     public decimal OverallScore { get; set; }
     public Dictionary<string, DimensionScoreDto> DimensionScores { get; set; } = [];
+    public List<ScoreAiRoundDto> Rounds { get; set; } = [];
 }
 
 public class ReportAiResponse
