@@ -37,15 +37,15 @@ export function LoginModal({ onClose }: LoginModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      className="modal-backdrop"
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-sm rounded-3xl border border-[var(--token-color-border-default)] bg-white p-8 shadow-[var(--token-shadow-modal)]"
+        className="modal-shell"
         onClick={(e) => e.stopPropagation()}
       >
         <button
-          className="absolute right-5 top-5 text-[var(--token-color-text-tertiary)] transition-colors hover:text-[var(--token-color-text-primary)]"
+          className="modal-dismiss absolute right-5 top-5"
           onClick={onClose}
           type="button"
         >

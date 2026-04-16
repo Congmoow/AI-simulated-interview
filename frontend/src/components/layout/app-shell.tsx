@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { SideNav } from "@/components/layout/side-nav";
 
 const PAGE_LABELS: Record<string, string> = {
-  "/dashboard": "仪表盘",
+  "/dashboard": "个人画像",
   "/interview": "模拟面试",
   "/report": "报告中心",
   "/history": "历史趋势",

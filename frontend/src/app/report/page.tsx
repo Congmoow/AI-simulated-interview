@@ -16,29 +16,22 @@ const INTERVIEW_MODE_LABELS: Record<string, string> = {
   stress: "高压模式",
 };
 
-const STATUS_META: Record<
-  string,
-  { label: string; className: string }
-> = {
+const STATUS_META: Record<string, { label: string; className: string }> = {
   completed: {
     label: "已完成",
-    className:
-      "border-[rgba(16,185,129,0.16)] bg-[rgba(16,185,129,0.08)] text-[var(--token-color-success)]",
+    className: "status-badge status-badge--success",
   },
   generating_report: {
     label: "生成中",
-    className:
-      "border-[rgba(245,158,11,0.18)] bg-[rgba(245,158,11,0.08)] text-[var(--token-color-warning)]",
+    className: "status-badge status-badge--warning",
   },
   report_failed: {
     label: "生成失败",
-    className:
-      "border-[rgba(239,68,68,0.18)] bg-[rgba(239,68,68,0.08)] text-[var(--token-color-danger)]",
+    className: "status-badge status-badge--danger",
   },
   in_progress: {
     label: "进行中",
-    className:
-      "border-[rgba(0,102,255,0.16)] bg-[rgba(0,102,255,0.08)] text-[var(--token-color-primary)]",
+    className: "status-badge status-badge--info",
   },
 };
 
@@ -123,10 +116,9 @@ export default function ReportIndexPage() {
     <div className="space-y-4">
       {history.map((item) => (
         <div
-          className="group relative overflow-hidden rounded-[var(--token-radius-2xl)] border border-[var(--token-color-border-default)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(246,248,252,0.92))] p-5 shadow-[0_10px_26px_rgba(17,24,39,0.06)] transition-all duration-300 ease-out hover:-translate-y-0.5 hover:shadow-[0_18px_38px_rgba(17,24,39,0.10)]"
+          className="surface-panel surface-panel-topline interactive-card group p-5"
           key={item.interviewId}
         >
-          <div className="absolute inset-x-5 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(0,102,255,0.22),transparent)]" />
           <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
             <div className="space-y-4">
               <div className="space-y-2">
@@ -134,9 +126,7 @@ export default function ReportIndexPage() {
                   <span className="section-label !tracking-[0.14em]">报告记录</span>
                   <span
                     className={cn(
-                      "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold",
-                      STATUS_META[item.status]?.className ??
-                        "border-[rgba(17,24,39,0.10)] bg-[rgba(17,24,39,0.05)] text-[var(--token-color-text-secondary)]",
+                      STATUS_META[item.status]?.className ?? "status-badge status-badge--neutral",
                     )}
                   >
                     {STATUS_META[item.status]?.label ?? item.status}
@@ -151,22 +141,16 @@ export default function ReportIndexPage() {
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <span className="inline-flex items-center rounded-full border border-[rgba(0,102,255,0.10)] bg-[rgba(0,102,255,0.06)] px-3 py-1.5 text-[12px] font-semibold text-[var(--token-color-primary)]">
+                <span className="chip-info chip-info--primary">
                   {INTERVIEW_MODE_LABELS[item.interviewMode] ?? item.interviewMode}
                 </span>
-                <span className="inline-flex items-center rounded-full border border-[rgba(17,24,39,0.08)] bg-white px-3 py-1.5 text-[12px] font-semibold text-[var(--token-color-text-secondary)]">
-                  共 {item.roundCount} 轮
-                </span>
-                <span className="inline-flex items-center rounded-full border border-[rgba(17,24,39,0.08)] bg-white px-3 py-1.5 text-[12px] font-semibold text-[var(--token-color-text-secondary)]">
-                  时长 {formatDuration(item.duration)}
-                </span>
+                <span className="chip-info">共 {item.roundCount} 轮</span>
+                <span className="chip-info">时长 {formatDuration(item.duration)}</span>
               </div>
             </div>
-            <div className="flex flex-col items-start gap-3 rounded-[var(--token-radius-xl)] border border-[rgba(17,24,39,0.06)] bg-white/80 p-4 lg:min-w-[210px] lg:items-end">
+            <div className="subtle-panel flex flex-col items-start gap-3 p-4 lg:min-w-[210px] lg:items-end">
               <div className="space-y-1 lg:text-right">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--token-color-text-tertiary)]">
-                  综合得分
-                </p>
+                <p className="meta-label">综合得分</p>
                 <p className="text-3xl font-semibold text-[var(--token-color-text-primary)]">
                   {item.totalScore ?? "--"}
                 </p>

@@ -9,7 +9,7 @@ import { useAuthModalStore } from "@/stores/auth-modal-store";
 import { writeStoredAuth } from "@/utils/storage";
 
 const navItems = [
-  { href: "/dashboard", label: "仪表盘", hint: "岗位与入口" },
+  { href: "/dashboard", label: "个人画像", hint: "当前能力分析" },
   { href: "/interview", label: "模拟面试", hint: "实时问答" },
   { href: "/report", label: "报告中心", hint: "复盘诊断" },
   { href: "/history", label: "历史趋势", hint: "成长轨迹" },
@@ -52,10 +52,8 @@ export function SideNav() {
             return (
               <Link
                 className={cn(
-                  "block rounded-[var(--token-radius-lg)] px-3 py-3 transition-all duration-150 hover:translate-x-1",
-                  active
-                    ? "bg-[rgba(0,102,255,0.08)] text-primary"
-                    : "hover:bg-[rgba(17,24,39,0.04)]",
+                  "nav-entry",
+                  active ? "nav-entry--active" : "",
                 )}
                 href={item.href}
                 key={item.href}
@@ -74,8 +72,8 @@ export function SideNav() {
       <div className="relative">
         <button
           className={cn(
-            "flex w-full items-center gap-2 rounded-[var(--token-radius-lg)] px-3 py-3 transition-all duration-150 hover:translate-x-1",
-            menuOpen ? "bg-[rgba(17,24,39,0.04)]" : "hover:bg-[rgba(17,24,39,0.04)]",
+            "flex w-full items-center gap-2 rounded-[var(--token-radius-lg)] border-0 bg-transparent px-3 py-3 text-left transition-all duration-150 hover:translate-x-1 hover:bg-[rgba(17,24,39,0.04)]",
+            menuOpen ? "bg-[rgba(17,24,39,0.04)]" : "",
           )}
           onClick={() => setMenuOpen((v) => !v)}
           type="button"
@@ -87,7 +85,7 @@ export function SideNav() {
           <span className="font-semibold text-[length:var(--token-font-size-sm)]">设置</span>
         </button>
         {menuOpen && (
-          <div className="absolute bottom-full left-0 mb-1 w-full overflow-hidden rounded-[var(--token-radius-lg)] border border-[var(--token-color-border-default)] bg-white shadow-[var(--token-shadow-modal)]">
+          <div className="dropdown-panel absolute bottom-full left-0 mb-1 w-full">
             {user ? (
               <>
                 <div className="border-b border-[var(--token-color-border-default)] px-4 py-3">

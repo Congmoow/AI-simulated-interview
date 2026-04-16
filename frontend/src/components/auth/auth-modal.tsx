@@ -80,15 +80,15 @@ export function AuthModal() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      className="modal-backdrop"
       onClick={close}
     >
       <div
-        className="relative w-full max-w-sm rounded-3xl border border-[var(--token-color-border-default)] bg-white p-8 shadow-[var(--token-shadow-modal)]"
+        className="modal-shell"
         onClick={(e) => e.stopPropagation()}
       >
         <button
-          className="absolute right-5 top-5 text-[var(--token-color-text-tertiary)] transition-colors hover:text-[var(--token-color-text-primary)]"
+          className="modal-dismiss absolute right-5 top-5"
           onClick={close}
           type="button"
         >
@@ -99,14 +99,14 @@ export function AuthModal() {
 
         <div className="mb-6 flex gap-2">
           <button
-            className={`flex-1 rounded-[var(--token-radius-lg)] py-2 text-sm font-semibold transition-colors ${mode === "login" ? "bg-[rgba(0,102,255,0.08)] text-primary" : "text-[var(--token-color-text-secondary)] hover:bg-[rgba(17,24,39,0.04)]"}`}
+            className={`modal-segment ${mode === "login" ? "modal-segment--active" : ""}`}
             onClick={() => { setMode("login"); setError(null); }}
             type="button"
           >
             登录
           </button>
           <button
-            className={`flex-1 rounded-[var(--token-radius-lg)] py-2 text-sm font-semibold transition-colors ${mode === "register" ? "bg-[rgba(0,102,255,0.08)] text-primary" : "text-[var(--token-color-text-secondary)] hover:bg-[rgba(17,24,39,0.04)]"}`}
+            className={`modal-segment ${mode === "register" ? "modal-segment--active" : ""}`}
             onClick={() => { setMode("register"); setError(null); }}
             type="button"
           >

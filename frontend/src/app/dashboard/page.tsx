@@ -91,7 +91,7 @@ export default function DashboardPage() {
         <h1 className="display-title !text-[clamp(1.9rem,2.8vw,3rem)]">
           你好，{user?.username ?? "同学"}
         </h1>
-        <p className="text-caption max-w-[920px] text-[length:var(--token-font-size-lg)]">
+        <p className="text-caption max-w-page text-lg">
           {heroSummary}
         </p>
       </section>
@@ -165,7 +165,7 @@ export default function DashboardPage() {
         </Card>
       </section>
 
-      <Card className="space-y-5 border-[rgba(17,24,39,0.10)] bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(249,250,251,0.92))]">
+      <Card className="surface-panel space-y-5">
         <PanelTitle
           description="建议从影响最大、出现最频繁的问题开始修复。"
           icon={<ActionIcon className="h-5 w-5" />}
@@ -174,10 +174,9 @@ export default function DashboardPage() {
         <div className="grid gap-4 lg:grid-cols-3">
           {insights.nextActions.map((item, index) => (
             <div
-              className="surface-muted relative overflow-hidden p-4"
+              className="surface-muted surface-panel-topline p-4"
               key={`${item}-${index}`}
             >
-              <div className="absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,rgba(0,102,255,0.16),rgba(6,182,212,0.24))]" />
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--token-color-text-tertiary)]">
                 优先项 {index + 1}
               </p>
@@ -205,7 +204,7 @@ function PanelTitle({
         <span className="section-label">{title}</span>
         <p className="text-caption max-w-[560px]">{description}</p>
       </div>
-      <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[rgba(0,102,255,0.08)] text-[var(--token-color-primary)]">
+      <span className="icon-badge icon-badge--md icon-badge--primary">
         {icon}
       </span>
     </div>
@@ -218,11 +217,11 @@ function StrengthCard({
   item: DashboardInsightsDetail["strengths"][number];
 }) {
   return (
-    <div className="surface-muted group space-y-4 border-[rgba(16,185,129,0.12)] p-5 transition-all duration-300 ease-out hover:-translate-y-0.5 hover:shadow-[0_16px_34px_rgba(16,185,129,0.12)]">
+    <div className="surface-muted interactive-card interactive-card--success group space-y-4 p-5">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[rgba(16,185,129,0.10)] text-[var(--token-color-success)]">
+            <span className="icon-badge icon-badge--sm icon-badge--success">
               <StrengthIcon className="h-5 w-5" />
             </span>
             <div>
@@ -231,7 +230,7 @@ function StrengthCard({
             </div>
           </div>
         </div>
-        <span className="rounded-full border border-[rgba(16,185,129,0.18)] bg-[rgba(16,185,129,0.08)] px-2.5 py-1 text-[11px] font-semibold text-[var(--token-color-success)]">
+        <span className="status-badge status-badge--success">
           最近出现 {formatDate(item.lastSeenAt)}
         </span>
       </div>
@@ -239,8 +238,8 @@ function StrengthCard({
         {item.description}
       </p>
       {item.evidenceSamples.length > 0 ? (
-        <div className="rounded-[var(--token-radius-xl)] border border-[rgba(16,185,129,0.14)] bg-white/70 p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--token-color-text-tertiary)]">
+        <div className="subtle-panel subtle-panel--success p-4">
+          <p className="meta-label">
             证据摘要
           </p>
           <div className="mt-3 space-y-2">
@@ -263,11 +262,11 @@ function WeaknessCard({
   item: DashboardInsightsDetail["weaknesses"][number];
 }) {
   return (
-    <div className="surface-muted group space-y-4 border-[rgba(245,158,11,0.16)] p-5 transition-all duration-300 ease-out hover:-translate-y-0.5 hover:shadow-[0_16px_34px_rgba(245,158,11,0.12)]">
+    <div className="surface-muted interactive-card interactive-card--warning group space-y-4 p-5">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[rgba(245,158,11,0.10)] text-[var(--token-color-warning)]">
+            <span className="icon-badge icon-badge--sm icon-badge--warning">
               <WeaknessIcon className="h-5 w-5" />
             </span>
             <div>
@@ -276,16 +275,16 @@ function WeaknessCard({
             </div>
           </div>
         </div>
-        <span className="rounded-full border border-[rgba(245,158,11,0.18)] bg-[rgba(245,158,11,0.08)] px-2.5 py-1 text-[11px] font-semibold text-[var(--token-color-warning)]">
+        <span className="status-badge status-badge--warning">
           最近出现 {formatDate(item.lastSeenAt)}
         </span>
       </div>
       <p className="text-sm leading-6 text-[var(--token-color-text-secondary)]">
         {item.description}
       </p>
-      <div className="space-y-3 rounded-[var(--token-radius-xl)] border border-[rgba(245,158,11,0.14)] bg-white/74 p-4">
+      <div className="subtle-panel subtle-panel--warning space-y-3 p-4">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--token-color-text-tertiary)]">
+          <p className="meta-label">
             典型表现
           </p>
           <div className="mt-3 space-y-2">
@@ -297,7 +296,7 @@ function WeaknessCard({
           </div>
         </div>
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--token-color-text-tertiary)]">
+          <p className="meta-label">
             建议动作
           </p>
           <p className="mt-3 text-sm font-semibold leading-6">{item.suggestion}</p>
@@ -319,13 +318,13 @@ function SourceLinks({
 
   return (
     <div className="space-y-2">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--token-color-text-tertiary)]">
+      <p className="meta-label">
         相关报告
       </p>
       <div className="flex flex-wrap gap-2">
         {sources.map((source) => (
           <Link
-            className="inline-flex items-center gap-2 rounded-full border border-[rgba(17,24,39,0.08)] bg-white px-3 py-1.5 text-[12px] font-semibold text-[var(--token-color-text-secondary)] transition-colors hover:border-[rgba(0,102,255,0.18)] hover:text-[var(--token-color-primary)]"
+            className="link-chip"
             href={getReportDetailPath(source.interviewId)}
             key={`${source.reportId}-${source.interviewId}`}
           >
@@ -356,8 +355,8 @@ function DashboardEmptyState({
   scopeDescription: string;
 }) {
   return (
-    <Card className="state-card !min-h-[420px] overflow-hidden border-[rgba(0,102,255,0.10)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(239,246,255,0.86))] px-8 py-10">
-      <span className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-[rgba(0,102,255,0.08)] text-[var(--token-color-primary)]">
+    <Card className="state-card surface-panel overflow-hidden px-8 py-10 !min-h-[var(--token-size-state-card-large)]">
+      <span className="icon-badge icon-badge--lg icon-badge--primary">
         <RadarIcon className="h-8 w-8" />
       </span>
       <div className="space-y-3">
