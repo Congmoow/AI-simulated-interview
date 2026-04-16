@@ -8,7 +8,10 @@ from app.providers.openai_compatible_provider import OpenAICompatibleProvider, P
 from app.schemas.interview import (
     AnswerInterviewRequest,
     CandidateQuestion,
+    CurrentMainQuestion,
     DimensionScore,
+    InterviewLimits,
+    InterviewMessage,
     ScoreInterviewRequest,
     ScoreRound,
     StartInterviewRequest,
@@ -47,26 +50,70 @@ def _build_start_request() -> StartInterviewRequest:
     return StartInterviewRequest(
         interviewId=uuid4(),
         positionCode="java-backend",
+        positionName="Java 后端工程师",
         interviewMode="standard",
-        roundNumber=1,
         questionTypes=["project"],
-        sourceQuestion=_build_candidate_question(),
+        questionBank=[_build_candidate_question()],
+        askedQuestionIds=[],
+        currentMainQuestion=None,
+        recentMessages=[],
+        historyAnswerSummaries=[],
+        limits=InterviewLimits(
+            maxMainQuestions=5,
+            currentMainQuestionCount=0,
+            maxMessages=30,
+            currentMessageCount=0,
+            maxDurationMinutes=30,
+            currentDurationMinutes=0,
+        ),
     )
 
 
 def _build_answer_request() -> AnswerInterviewRequest:
+    current_question = _build_candidate_question()
     return AnswerInterviewRequest(
         interviewId=uuid4(),
-        roundNumber=1,
-        interviewMode="standard",
         positionCode="java-backend",
-        questionTitle="Introduce your project",
-        questionContent="Describe an order system you built",
-        answer="I owned ordering and inventory consistency",
-        followUpCount=0,
-        currentRound=1,
-        totalRounds=3,
-        nextQuestionCandidate=_build_candidate_question(),
+        positionName="Java 后端工程师",
+        interviewMode="standard",
+        questionBank=[
+            current_question,
+            _build_candidate_question(),
+        ],
+        askedQuestionIds=[current_question.question_id],
+        currentMainQuestion=CurrentMainQuestion(
+            roundNumber=1,
+            questionId=current_question.question_id,
+            title=current_question.title,
+            type=current_question.type,
+            askedContent="请先介绍一个最相关的后端项目。",
+            followUpCount=0,
+        ),
+        recentMessages=[
+            InterviewMessage(
+                role="assistant",
+                messageType="opening",
+                content="请先介绍一个最相关的后端项目。",
+                relatedQuestionId=current_question.question_id,
+                sequence=1,
+            ),
+            InterviewMessage(
+                role="user",
+                messageType="answer",
+                content="I owned ordering and inventory consistency",
+                relatedQuestionId=current_question.question_id,
+                sequence=2,
+            ),
+        ],
+        historyAnswerSummaries=["第1题：Introduce your project；回答：I owned ordering and inventory consistency"],
+        limits=InterviewLimits(
+            maxMainQuestions=3,
+            currentMainQuestionCount=1,
+            maxMessages=30,
+            currentMessageCount=2,
+            maxDurationMinutes=30,
+            currentDurationMinutes=8,
+        ),
     )
 
 
@@ -170,6 +217,8 @@ def test_generate_report_should_use_real_ai_response(monkeypatch) -> None:
 def test_score_and_report_should_use_new_timeouts_and_skip_finish_step(monkeypatch) -> None:
     provider = _build_provider()
     calls: list[tuple[str, float, int]] = []
+    start_request = _build_start_request()
+    answer_request = _build_answer_request()
 
     def fake_chat_text(
         *,
@@ -182,9 +231,9 @@ def test_score_and_report_should_use_new_timeouts_and_skip_finish_step(monkeypat
     ) -> str:
         calls.append((step, timeout_seconds, max_tokens))
         if step == "start_interview":
-            return '{"title":"Project intro","content":"Tell me about your system","suggestions":["start with scope"]}'
+            return '{"action":"question","messageType":"opening","content":"Tell me about your system","selectedQuestionId":"' + str(start_request.question_bank[0].question_id) + '","suggestions":["start with scope"]}'
         if step == "answer_interview":
-            return '{"decision":"follow_up","content":"Add more details","suggestions":["mention metrics"]}'
+            return '{"action":"follow_up","messageType":"follow_up","content":"Add more details","suggestions":["mention metrics"]}'
         if step == "score_interview":
             return '{"overallScore":85,"rankPercentile":88,"dimensionScores":{"technicalAccuracy":82,"knowledgeDepth":80,"logicalThinking":83,"positionMatch":84,"projectAuthenticity":81,"fluency":86,"clarity":85,"confidence":84},"dimensionDetails":{"technicalAccuracy":"stable"},"scoreBreakdown":{}}'
         if step == "generate_report":
@@ -193,14 +242,14 @@ def test_score_and_report_should_use_new_timeouts_and_skip_finish_step(monkeypat
 
     monkeypatch.setattr(provider, "_chat_text", fake_chat_text)
 
-    provider.start_interview(_build_start_request())
-    provider.answer_interview(_build_answer_request())
+    provider.start_interview(start_request)
+    provider.answer_interview(answer_request)
     provider.score_interview(_build_score_request())
     provider.generate_report(_build_report_request())
 
     assert calls == [
-        ("start_interview", 12.0, 220),
-        ("answer_interview", 30.0, 512),
+        ("start_interview", 25.0, 220),
+        ("answer_interview", 60.0, 220),
         ("score_interview", 45.0, 512),
         ("generate_report", 60.0, 600),
     ]

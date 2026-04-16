@@ -21,6 +21,9 @@ public class InterviewService(
     IHubContext<InterviewHub, IInterviewClient> hubContext,
     ILogger<InterviewService> logger) : IInterviewService
 {
+    private const int DefaultMaxMessages = 30;
+    private const int DefaultMaxDurationMinutes = 30;
+
     public async Task<CreateInterviewResponse> CreateInterviewAsync(Guid userId, CreateInterviewRequest request, CancellationToken cancellationToken = default)
     {
         _ = aiSettingsService;
@@ -28,53 +31,102 @@ public class InterviewService(
         var position = await catalogRepository.GetPositionByCodeAsync(request.PositionCode, cancellationToken)
             ?? throw new AppException(ErrorCodes.PositionNotFound, "岗位不存在", StatusCodes.Status404NotFound);
 
+        var interviewId = Guid.NewGuid();
         var selectedQuestionTypes = request.QuestionTypes?.Length > 0 ? request.QuestionTypes : QuestionTypes.All;
-        var firstQuestion = await catalogRepository.GetRandomQuestionAsync(position.Code, selectedQuestionTypes, [], cancellationToken)
-            ?? throw new AppException(ErrorCodes.QuestionNotFound, "当前岗位暂无可用题目", StatusCodes.Status404NotFound);
-
-        var aiQuestion = await aiIntegrationService.StartInterviewAsync(new StartInterviewAiRequest
+        var totalRounds = request.RoundCount is > 0 ? request.RoundCount.Value : 5;
+        var questionBank = await catalogRepository.GetQuestionsByPositionAsync(position.Code, selectedQuestionTypes, cancellationToken);
+        if (questionBank.Count == 0)
         {
-            InterviewId = Guid.NewGuid(),
+            throw new AppException(ErrorCodes.QuestionNotFound, "当前岗位暂无可用题目", StatusCodes.Status404NotFound);
+        }
+
+        var limits = new InterviewAiLimitsDto
+        {
+            MaxMainQuestions = totalRounds,
+            CurrentMainQuestionCount = 0,
+            MaxMessages = DefaultMaxMessages,
+            CurrentMessageCount = 0,
+            MaxDurationMinutes = DefaultMaxDurationMinutes,
+            CurrentDurationMinutes = 0
+        };
+
+        var aiMessage = await aiIntegrationService.StartInterviewAsync(new StartInterviewAiRequest
+        {
+            InterviewId = interviewId,
             PositionCode = position.Code,
-            InterviewMode = request.InterviewMode,
-            RoundNumber = 1,
+            PositionName = position.Name,
+            InterviewMode = string.IsNullOrWhiteSpace(request.InterviewMode) ? InterviewModes.Standard : request.InterviewMode,
             QuestionTypes = selectedQuestionTypes,
-            SourceQuestion = ToCandidateQuestion(firstQuestion)
+            QuestionBank = questionBank.Select(ToCandidateQuestion).ToList(),
+            AskedQuestionIds = [],
+            RecentMessages = [],
+            HistoryAnswerSummaries = [],
+            Limits = limits
         }, cancellationToken);
 
+        if (!string.Equals(aiMessage.Action, AiInterviewActions.Question, StringComparison.Ordinal))
+        {
+            throw new AppException(ErrorCodes.ServiceUnavailable, "首条面试消息必须是主问题", StatusCodes.Status503ServiceUnavailable);
+        }
+
+        var selectedQuestion = ResolveSelectedQuestion(questionBank, aiMessage.SelectedQuestionId, []);
         var interview = new Interview
         {
-            Id = Guid.NewGuid(),
+            Id = interviewId,
             UserId = userId,
             PositionCode = position.Code,
             InterviewMode = string.IsNullOrWhiteSpace(request.InterviewMode) ? InterviewModes.Standard : request.InterviewMode,
             Status = InterviewStatuses.InProgress,
-            TotalRounds = request.RoundCount is > 0 ? request.RoundCount.Value : 5,
+            TotalRounds = totalRounds,
             CurrentRound = 1,
             QuestionTypes = selectedQuestionTypes,
+            Config = ApplicationMapper.SerializeObject(new
+            {
+                maxMainQuestions = totalRounds,
+                maxMessages = DefaultMaxMessages,
+                maxDurationMinutes = DefaultMaxDurationMinutes
+            }),
             StartedAt = DateTimeOffset.UtcNow
+        };
+
+        var openingMessage = new InterviewMessage
+        {
+            InterviewId = interview.Id,
+            Role = InterviewMessageRoles.Assistant,
+            MessageType = string.IsNullOrWhiteSpace(aiMessage.MessageType) ? InterviewMessageTypes.Opening : aiMessage.MessageType,
+            Content = aiMessage.Content,
+            RelatedQuestionId = selectedQuestion.Id,
+            Sequence = 1,
+            Metadata = ApplicationMapper.SerializeObject(aiMessage.Metadata)
         };
 
         var round = new InterviewRound
         {
             InterviewId = interview.Id,
             RoundNumber = 1,
-            QuestionId = firstQuestion.Id,
-            QuestionTitle = aiQuestion.Title,
-            QuestionType = aiQuestion.Type,
-            QuestionContent = aiQuestion.Content
+            QuestionId = selectedQuestion.Id,
+            QuestionTitle = selectedQuestion.Title,
+            QuestionType = selectedQuestion.Type,
+            QuestionContent = aiMessage.Content,
+            Context = ApplicationMapper.SerializeObject(aiMessage.Metadata)
         };
 
+        interview.Messages.Add(openingMessage);
+        interview.Rounds.Add(round);
+
         await interviewRepository.AddInterviewAsync(interview, cancellationToken);
+        await interviewRepository.AddMessageAsync(openingMessage, cancellationToken);
         await interviewRepository.AddRoundAsync(round, cancellationToken);
         await interviewRepository.SaveChangesAsync(cancellationToken);
 
         await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).ReceiveQuestion(new
         {
-            questionId = round.QuestionId,
-            title = round.QuestionTitle,
-            type = round.QuestionType,
-            roundNumber = round.RoundNumber
+            messageId = openingMessage.Id,
+            questionId = selectedQuestion.Id,
+            content = openingMessage.Content,
+            type = selectedQuestion.Type,
+            roundNumber = round.RoundNumber,
+            messageType = openingMessage.MessageType
         });
 
         return new CreateInterviewResponse
@@ -89,17 +141,19 @@ public class InterviewService(
             CreatedAt = interview.CreatedAt,
             FirstQuestion = new QuestionBriefDto
             {
-                QuestionId = round.QuestionId ?? Guid.Empty,
-                Title = round.QuestionTitle,
-                Type = round.QuestionType,
-                RoundNumber = round.RoundNumber
-            }
+                QuestionId = selectedQuestion.Id,
+                Title = openingMessage.Content,
+                Type = selectedQuestion.Type,
+                RoundNumber = 1
+            },
+            Messages = [ToMessageDto(openingMessage)]
         };
     }
 
     public async Task<InterviewCurrentDetailDto> GetInterviewAsync(Guid userId, Guid interviewId, CancellationToken cancellationToken = default)
     {
         var interview = await GetOwnedInterviewAsync(userId, interviewId, true, cancellationToken);
+        var messages = BuildDisplayMessages(interview);
 
         return new InterviewCurrentDetailDto
         {
@@ -111,6 +165,7 @@ public class InterviewService(
             CurrentRound = interview.CurrentRound,
             TotalRounds = interview.TotalRounds,
             CreatedAt = interview.CreatedAt,
+            Messages = messages.Select(ToMessageDto).ToArray(),
             Rounds = interview.Rounds
                 .OrderBy(x => x.RoundNumber)
                 .Select(x => new InterviewRoundCurrentDto
@@ -138,135 +193,96 @@ public class InterviewService(
         }
 
         var interview = await GetOwnedInterviewAsync(userId, interviewId, true, cancellationToken);
-        var currentRound = interview.Rounds.OrderByDescending(x => x.RoundNumber).FirstOrDefault()
-            ?? throw new AppException(ErrorCodes.InterviewNotFound, "面试轮次不存在", StatusCodes.Status404NotFound);
+        if (!string.Equals(interview.Status, InterviewStatuses.InProgress, StringComparison.Ordinal))
+        {
+            throw new AppException(ErrorCodes.ServiceUnavailable, "当前面试不允许继续作答", StatusCodes.Status409Conflict);
+        }
 
+        var currentRound = interview.Rounds.OrderByDescending(x => x.RoundNumber).FirstOrDefault()
+            ?? throw new AppException(ErrorCodes.InterviewNotFound, "当前面试缺少主问题记录", StatusCodes.Status404NotFound);
+
+        var now = DateTimeOffset.UtcNow;
         currentRound.UserAnswer = request.Answer.Trim();
         currentRound.UserInputMode = request.InputMode;
         currentRound.VoiceTranscription = request.Transcription;
-        currentRound.AnsweredAt = DateTimeOffset.UtcNow;
-        interview.UpdatedAt = DateTimeOffset.UtcNow;
+        currentRound.AnsweredAt = now;
+        interview.UpdatedAt = now;
 
-        var nextQuestionCandidate = interview.CurrentRound < interview.TotalRounds
-            ? await catalogRepository.GetRandomQuestionAsync(
-                interview.PositionCode,
-                interview.QuestionTypes,
-                interview.Rounds.Where(x => x.QuestionId.HasValue).Select(x => x.QuestionId!.Value),
-                cancellationToken)
-            : null;
+        var userMessage = new InterviewMessage
+        {
+            InterviewId = interview.Id,
+            Role = InterviewMessageRoles.User,
+            MessageType = InterviewMessageTypes.Answer,
+            Content = request.Answer.Trim(),
+            RelatedQuestionId = currentRound.QuestionId,
+            Sequence = await interviewRepository.GetNextMessageSequenceAsync(interview.Id, cancellationToken)
+        };
+
+        interview.Messages.Add(userMessage);
+        await interviewRepository.AddMessageAsync(userMessage, cancellationToken);
+        await interviewRepository.SaveChangesAsync(cancellationToken);
+
+        var limits = BuildLimits(interview, BuildDisplayMessages(interview).Count);
+        if (limits.CurrentMessageCount >= limits.MaxMessages || limits.CurrentDurationMinutes >= limits.MaxDurationMinutes)
+        {
+            return await CompleteInterviewFromAiAsync(
+                interview,
+                currentRound,
+                new AnswerAiResponse
+                {
+                    Action = AiInterviewActions.Finish,
+                    MessageType = InterviewMessageTypes.Closing,
+                    Content = "本次面试先到这里，接下来为你生成报告。",
+                    Suggestions = []
+                },
+                cancellationToken);
+        }
 
         await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).TypingIndicator(new { isTyping = true });
 
+        var questionBank = await catalogRepository.GetQuestionsByPositionAsync(interview.PositionCode, interview.QuestionTypes, cancellationToken);
         var aiResponse = await aiIntegrationService.AnswerAsync(new AnswerAiRequest
         {
             InterviewId = interview.Id,
-            RoundNumber = currentRound.RoundNumber,
-            InterviewMode = interview.InterviewMode,
             PositionCode = interview.PositionCode,
-            QuestionTitle = currentRound.QuestionTitle,
-            QuestionContent = currentRound.QuestionContent,
-            Answer = request.Answer.Trim(),
-            FollowUpCount = currentRound.FollowUpCount,
-            CurrentRound = interview.CurrentRound,
-            TotalRounds = interview.TotalRounds,
-            NextQuestionCandidate = nextQuestionCandidate is null ? null : ToCandidateQuestion(nextQuestionCandidate)
+            PositionName = interview.Position?.Name ?? interview.PositionCode,
+            InterviewMode = interview.InterviewMode,
+            QuestionBank = questionBank.Select(ToCandidateQuestion).ToList(),
+            AskedQuestionIds = interview.Rounds.Where(x => x.QuestionId.HasValue).Select(x => x.QuestionId!.Value).Distinct().ToList(),
+            CurrentMainQuestion = new CurrentMainQuestionAiDto
+            {
+                RoundNumber = currentRound.RoundNumber,
+                QuestionId = currentRound.QuestionId ?? Guid.Empty,
+                Title = currentRound.QuestionTitle,
+                Type = currentRound.QuestionType,
+                AskedContent = currentRound.QuestionContent,
+                FollowUpCount = currentRound.FollowUpCount
+            },
+            RecentMessages = BuildDisplayMessages(interview)
+                .OrderBy(x => x.Sequence)
+                .TakeLast(12)
+                .Select(ToAiMessage)
+                .ToList(),
+            HistoryAnswerSummaries = BuildHistoryAnswerSummaries(interview),
+            Limits = limits
         }, cancellationToken);
 
-        if (aiResponse.Type == "follow_up")
+        if (string.Equals(aiResponse.Action, AiInterviewActions.FollowUp, StringComparison.Ordinal))
         {
-            currentRound.AiFollowUps = currentRound.AiFollowUps.Append(aiResponse.Content).ToArray();
-            currentRound.FollowUpCount += 1;
-            await interviewRepository.SaveChangesAsync(cancellationToken);
-
-            await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).TypingIndicator(new { isTyping = false });
-            await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).ReceiveFollowUp(new
-            {
-                questionId = currentRound.QuestionId,
-                content = aiResponse.Content,
-                suggestions = aiResponse.Suggestions
-            });
-
-            return new SubmitAnswerResponse
-            {
-                RoundNumber = currentRound.RoundNumber,
-                InterviewStatus = interview.Status,
-                NextRoundAvailable = false,
-                AiResponse = new AiResponseDto
-                {
-                    Type = aiResponse.Type,
-                    Content = aiResponse.Content,
-                    Suggestions = aiResponse.Suggestions
-                }
-            };
+            return await AppendFollowUpAsync(interview, currentRound, aiResponse, cancellationToken);
         }
 
-        var nextQuestion = aiResponse.NextQuestion ?? (nextQuestionCandidate is null ? null : ToCandidateQuestion(nextQuestionCandidate));
-        if (nextQuestion is null)
+        if (string.Equals(aiResponse.Action, AiInterviewActions.Finish, StringComparison.Ordinal))
         {
-            await interviewRepository.SaveChangesAsync(cancellationToken);
-            await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).TypingIndicator(new { isTyping = false });
-
-            return new SubmitAnswerResponse
-            {
-                RoundNumber = currentRound.RoundNumber,
-                InterviewStatus = interview.Status,
-                NextRoundAvailable = false,
-                AiResponse = new AiResponseDto
-                {
-                    Type = "follow_up",
-                    Content = "当前问题已经完成，可以继续下一轮或结束面试。",
-                    Suggestions = ["继续追问", "切换下一题", "主动结束"]
-                }
-            };
+            return await CompleteInterviewFromAiAsync(interview, currentRound, aiResponse, cancellationToken);
         }
 
-        var nextRoundNumber = currentRound.RoundNumber + 1;
-        interview.CurrentRound = nextRoundNumber;
-
-        var nextRound = new InterviewRound
-        {
-            InterviewId = interview.Id,
-            RoundNumber = nextRoundNumber,
-            QuestionId = nextQuestion.QuestionId == Guid.Empty ? nextQuestionCandidate?.Id : nextQuestion.QuestionId,
-            QuestionTitle = nextQuestion.Title,
-            QuestionType = nextQuestion.Type,
-            QuestionContent = nextQuestion.Content
-        };
-
-        await interviewRepository.AddRoundAsync(nextRound, cancellationToken);
-        await interviewRepository.SaveChangesAsync(cancellationToken);
-
-        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).TypingIndicator(new { isTyping = false });
-        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).ReceiveQuestion(new
-        {
-            questionId = nextRound.QuestionId,
-            title = nextRound.QuestionTitle,
-            type = nextRound.QuestionType,
-            roundNumber = nextRound.RoundNumber
-        });
-        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).InterviewStatusChanged(new
-        {
-            status = interview.Status,
-            currentRound = interview.CurrentRound
-        });
-
-        return new SubmitAnswerResponse
-        {
-            RoundNumber = currentRound.RoundNumber,
-            InterviewStatus = interview.Status,
-            NextRoundAvailable = true,
-            AiResponse = new AiResponseDto
-            {
-                Type = "next_question",
-                Content = nextRound.QuestionTitle,
-                Suggestions = aiResponse.Suggestions
-            }
-        };
+        return await AppendNextQuestionAsync(interview, currentRound, questionBank, aiResponse, cancellationToken);
     }
 
     public async Task<FinishInterviewResponse> FinishInterviewAsync(Guid userId, Guid interviewId, CancellationToken cancellationToken = default)
     {
-        logger.LogInformation("finish_request_received，interviewId={InterviewId}", interviewId);
+        logger.LogInformation("finish_request_received interviewId={InterviewId}", interviewId);
 
         var interview = await GetOwnedInterviewAsync(userId, interviewId, true, cancellationToken);
         if (interview.Report is not null)
@@ -285,40 +301,14 @@ public class InterviewService(
             if (!reportGenerationQueue.IsQueued(interview.Id))
             {
                 await reportGenerationQueue.EnqueueAsync(interview.Id, cancellationToken);
-                logger.LogInformation("report_job_enqueued，interviewId={InterviewId} repaired=true", interview.Id);
+                logger.LogInformation("report_job_enqueued interviewId={InterviewId} repaired=true", interview.Id);
             }
 
             return CreateGeneratingReportResponse(interview.Id);
         }
 
-        var now = DateTimeOffset.UtcNow;
-        if (interview.EndedAt is null)
-        {
-            interview.EndedAt = now;
-            interview.DurationSeconds = interview.StartedAt.HasValue
-                ? (int)(interview.EndedAt.Value - interview.StartedAt.Value).TotalSeconds
-                : 0;
-        }
-
-        interview.Status = InterviewStatuses.GeneratingReport;
-        interview.UpdatedAt = now;
-
-        await interviewRepository.SaveChangesAsync(cancellationToken);
-        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).InterviewStatusChanged(new
-        {
-            status = interview.Status,
-            currentRound = interview.CurrentRound
-        });
-        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).ReportProgress(new
-        {
-            progress = 10,
-            stage = "ended",
-            estimatedTime = 30
-        });
-
-        await reportGenerationQueue.EnqueueAsync(interview.Id, cancellationToken);
-        logger.LogInformation("report_job_enqueued，interviewId={InterviewId} repaired=false", interview.Id);
-
+        await BeginReportGenerationAsync(interview, cancellationToken);
+        logger.LogInformation("report_job_enqueued interviewId={InterviewId} repaired=false", interview.Id);
         return CreateGeneratingReportResponse(interview.Id);
     }
 
@@ -376,6 +366,214 @@ public class InterviewService(
         };
     }
 
+    private async Task<SubmitAnswerResponse> AppendFollowUpAsync(
+        Interview interview,
+        InterviewRound currentRound,
+        AnswerAiResponse aiResponse,
+        CancellationToken cancellationToken)
+    {
+        var followUpMessage = new InterviewMessage
+        {
+            InterviewId = interview.Id,
+            Role = InterviewMessageRoles.Assistant,
+            MessageType = string.IsNullOrWhiteSpace(aiResponse.MessageType) ? InterviewMessageTypes.FollowUp : aiResponse.MessageType,
+            Content = aiResponse.Content,
+            RelatedQuestionId = currentRound.QuestionId,
+            Sequence = await interviewRepository.GetNextMessageSequenceAsync(interview.Id, cancellationToken),
+            Metadata = ApplicationMapper.SerializeObject(aiResponse.Metadata)
+        };
+
+        currentRound.AiFollowUps = currentRound.AiFollowUps.Append(aiResponse.Content).ToArray();
+        currentRound.FollowUpCount += 1;
+        currentRound.Context = ApplicationMapper.SerializeObject(aiResponse.Metadata);
+        interview.Messages.Add(followUpMessage);
+
+        await interviewRepository.AddMessageAsync(followUpMessage, cancellationToken);
+        await interviewRepository.SaveChangesAsync(cancellationToken);
+
+        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).TypingIndicator(new { isTyping = false });
+        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).ReceiveFollowUp(new
+        {
+            messageId = followUpMessage.Id,
+            questionId = currentRound.QuestionId,
+            content = followUpMessage.Content,
+            messageType = followUpMessage.MessageType,
+            suggestions = aiResponse.Suggestions
+        });
+
+        return new SubmitAnswerResponse
+        {
+            RoundNumber = currentRound.RoundNumber,
+            InterviewStatus = interview.Status,
+            NextRoundAvailable = false,
+            AiResponse = new AiResponseDto
+            {
+                Type = AiInterviewActions.FollowUp,
+                Content = aiResponse.Content,
+                Suggestions = aiResponse.Suggestions
+            }
+        };
+    }
+
+    private async Task<SubmitAnswerResponse> AppendNextQuestionAsync(
+        Interview interview,
+        InterviewRound currentRound,
+        List<QuestionBank> questionBank,
+        AnswerAiResponse aiResponse,
+        CancellationToken cancellationToken)
+    {
+        if (interview.CurrentRound >= interview.TotalRounds)
+        {
+            return await CompleteInterviewFromAiAsync(
+                interview,
+                currentRound,
+                new AnswerAiResponse
+                {
+                    Action = AiInterviewActions.Finish,
+                    MessageType = InterviewMessageTypes.Closing,
+                    Content = "主问题轮次已达到上限，接下来为你生成报告。",
+                    Suggestions = []
+                },
+                cancellationToken);
+        }
+
+        var askedQuestionIds = interview.Rounds
+            .Where(x => x.QuestionId.HasValue)
+            .Select(x => x.QuestionId!.Value)
+            .Distinct()
+            .ToList();
+        var selectedQuestion = ResolveSelectedQuestion(questionBank, aiResponse.SelectedQuestionId, askedQuestionIds);
+
+        var nextRoundNumber = currentRound.RoundNumber + 1;
+        interview.CurrentRound = nextRoundNumber;
+
+        var questionMessage = new InterviewMessage
+        {
+            InterviewId = interview.Id,
+            Role = InterviewMessageRoles.Assistant,
+            MessageType = string.IsNullOrWhiteSpace(aiResponse.MessageType) ? InterviewMessageTypes.Question : aiResponse.MessageType,
+            Content = aiResponse.Content,
+            RelatedQuestionId = selectedQuestion.Id,
+            Sequence = await interviewRepository.GetNextMessageSequenceAsync(interview.Id, cancellationToken),
+            Metadata = ApplicationMapper.SerializeObject(aiResponse.Metadata)
+        };
+
+        var nextRound = new InterviewRound
+        {
+            InterviewId = interview.Id,
+            RoundNumber = nextRoundNumber,
+            QuestionId = selectedQuestion.Id,
+            QuestionTitle = selectedQuestion.Title,
+            QuestionType = selectedQuestion.Type,
+            QuestionContent = aiResponse.Content,
+            Context = ApplicationMapper.SerializeObject(aiResponse.Metadata)
+        };
+
+        interview.Messages.Add(questionMessage);
+        interview.Rounds.Add(nextRound);
+
+        await interviewRepository.AddMessageAsync(questionMessage, cancellationToken);
+        await interviewRepository.AddRoundAsync(nextRound, cancellationToken);
+        await interviewRepository.SaveChangesAsync(cancellationToken);
+
+        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).TypingIndicator(new { isTyping = false });
+        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).ReceiveQuestion(new
+        {
+            messageId = questionMessage.Id,
+            questionId = selectedQuestion.Id,
+            content = questionMessage.Content,
+            type = selectedQuestion.Type,
+            roundNumber = nextRound.RoundNumber,
+            messageType = questionMessage.MessageType
+        });
+        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).InterviewStatusChanged(new
+        {
+            status = interview.Status,
+            currentRound = interview.CurrentRound
+        });
+
+        return new SubmitAnswerResponse
+        {
+            RoundNumber = currentRound.RoundNumber,
+            InterviewStatus = interview.Status,
+            NextRoundAvailable = true,
+            AiResponse = new AiResponseDto
+            {
+                Type = "next_question",
+                Content = aiResponse.Content,
+                Suggestions = aiResponse.Suggestions
+            }
+        };
+    }
+
+    private async Task<SubmitAnswerResponse> CompleteInterviewFromAiAsync(
+        Interview interview,
+        InterviewRound currentRound,
+        AnswerAiResponse aiResponse,
+        CancellationToken cancellationToken)
+    {
+        var closingMessage = new InterviewMessage
+        {
+            InterviewId = interview.Id,
+            Role = InterviewMessageRoles.Assistant,
+            MessageType = string.IsNullOrWhiteSpace(aiResponse.MessageType) ? InterviewMessageTypes.Closing : aiResponse.MessageType,
+            Content = aiResponse.Content,
+            RelatedQuestionId = currentRound.QuestionId,
+            Sequence = await interviewRepository.GetNextMessageSequenceAsync(interview.Id, cancellationToken),
+            Metadata = ApplicationMapper.SerializeObject(aiResponse.Metadata)
+        };
+
+        interview.Messages.Add(closingMessage);
+        await interviewRepository.AddMessageAsync(closingMessage, cancellationToken);
+        await interviewRepository.SaveChangesAsync(cancellationToken);
+
+        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).TypingIndicator(new { isTyping = false });
+        await BeginReportGenerationAsync(interview, cancellationToken);
+
+        return new SubmitAnswerResponse
+        {
+            RoundNumber = currentRound.RoundNumber,
+            InterviewStatus = interview.Status,
+            NextRoundAvailable = false,
+            AiResponse = new AiResponseDto
+            {
+                Type = AiInterviewActions.Finish,
+                Content = aiResponse.Content,
+                Suggestions = aiResponse.Suggestions
+            }
+        };
+    }
+
+    private async Task BeginReportGenerationAsync(Interview interview, CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (interview.EndedAt is null)
+        {
+            interview.EndedAt = now;
+            interview.DurationSeconds = interview.StartedAt.HasValue
+                ? (int)(interview.EndedAt.Value - interview.StartedAt.Value).TotalSeconds
+                : 0;
+        }
+
+        interview.Status = InterviewStatuses.GeneratingReport;
+        interview.UpdatedAt = now;
+
+        await interviewRepository.SaveChangesAsync(cancellationToken);
+        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).InterviewStatusChanged(new
+        {
+            status = interview.Status,
+            currentRound = interview.CurrentRound
+        });
+        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).ReportProgress(new
+        {
+            progress = 10,
+            stage = "ended",
+            estimatedTime = 30
+        });
+
+        await reportGenerationQueue.EnqueueAsync(interview.Id, cancellationToken);
+    }
+
     private async Task<Interview> GetOwnedInterviewAsync(Guid userId, Guid interviewId, bool includeDetails, CancellationToken cancellationToken)
     {
         var interview = includeDetails
@@ -399,6 +597,131 @@ public class InterviewService(
             Type = question.Type,
             Content = question.Content,
             Difficulty = question.Difficulty
+        };
+    }
+
+    private static InterviewMessageAiDto ToAiMessage(InterviewMessage message)
+    {
+        return new InterviewMessageAiDto
+        {
+            Role = message.Role,
+            MessageType = message.MessageType,
+            Content = message.Content,
+            RelatedQuestionId = message.RelatedQuestionId,
+            Sequence = message.Sequence
+        };
+    }
+
+    private static InterviewMessageDto ToMessageDto(InterviewMessage message)
+    {
+        return new InterviewMessageDto
+        {
+            Id = message.Id,
+            Role = message.Role,
+            MessageType = message.MessageType,
+            Content = message.Content,
+            RelatedQuestionId = message.RelatedQuestionId,
+            Sequence = message.Sequence,
+            Metadata = ApplicationMapper.DeserializeObject<Dictionary<string, object>>(message.Metadata, []),
+            CreatedAt = message.CreatedAt
+        };
+    }
+
+    private static QuestionBank ResolveSelectedQuestion(IEnumerable<QuestionBank> questionBank, Guid? selectedQuestionId, IEnumerable<Guid> askedQuestionIds)
+    {
+        var asked = askedQuestionIds.ToHashSet();
+        if (selectedQuestionId.HasValue)
+        {
+            var matched = questionBank.FirstOrDefault(item => item.Id == selectedQuestionId.Value && !asked.Contains(item.Id));
+            if (matched is not null)
+            {
+                return matched;
+            }
+        }
+
+        var fallback = questionBank.FirstOrDefault(item => !asked.Contains(item.Id)) ?? questionBank.First();
+        return fallback;
+    }
+
+    private static List<InterviewMessage> BuildDisplayMessages(Interview interview)
+    {
+        if (interview.Messages.Count > 0)
+        {
+            return interview.Messages.OrderBy(item => item.Sequence).ToList();
+        }
+
+        var messages = new List<InterviewMessage>();
+        var sequence = 1;
+        foreach (var round in interview.Rounds.OrderBy(item => item.RoundNumber))
+        {
+            messages.Add(new InterviewMessage
+            {
+                InterviewId = interview.Id,
+                Role = InterviewMessageRoles.Assistant,
+                MessageType = round.RoundNumber == 1 ? InterviewMessageTypes.Opening : InterviewMessageTypes.Question,
+                Content = round.QuestionContent,
+                RelatedQuestionId = round.QuestionId,
+                Sequence = sequence++,
+                CreatedAt = round.CreatedAt
+            });
+
+            if (!string.IsNullOrWhiteSpace(round.UserAnswer))
+            {
+                messages.Add(new InterviewMessage
+                {
+                    InterviewId = interview.Id,
+                    Role = InterviewMessageRoles.User,
+                    MessageType = InterviewMessageTypes.Answer,
+                    Content = round.UserAnswer,
+                    RelatedQuestionId = round.QuestionId,
+                    Sequence = sequence++,
+                    CreatedAt = round.AnsweredAt ?? round.CreatedAt
+                });
+            }
+
+            foreach (var followUp in round.AiFollowUps)
+            {
+                messages.Add(new InterviewMessage
+                {
+                    InterviewId = interview.Id,
+                    Role = InterviewMessageRoles.Assistant,
+                    MessageType = InterviewMessageTypes.FollowUp,
+                    Content = followUp,
+                    RelatedQuestionId = round.QuestionId,
+                    Sequence = sequence++,
+                    CreatedAt = round.AnsweredAt ?? round.CreatedAt
+                });
+            }
+        }
+
+        return messages;
+    }
+
+    private static List<string> BuildHistoryAnswerSummaries(Interview interview)
+    {
+        return interview.Rounds
+            .OrderBy(item => item.RoundNumber)
+            .Where(item => !string.IsNullOrWhiteSpace(item.UserAnswer))
+            .Select(item => $"第{item.RoundNumber}题：{item.QuestionTitle}；回答：{item.UserAnswer}")
+            .TakeLast(5)
+            .ToList();
+    }
+
+    private static InterviewAiLimitsDto BuildLimits(Interview interview, int messageCount)
+    {
+        var config = ApplicationMapper.DeserializeObject<Dictionary<string, int>>(interview.Config, []);
+        var durationMinutes = interview.StartedAt.HasValue
+            ? (int)Math.Max(0, Math.Floor((DateTimeOffset.UtcNow - interview.StartedAt.Value).TotalMinutes))
+            : 0;
+
+        return new InterviewAiLimitsDto
+        {
+            MaxMainQuestions = config.GetValueOrDefault("maxMainQuestions", interview.TotalRounds),
+            CurrentMainQuestionCount = interview.CurrentRound,
+            MaxMessages = config.GetValueOrDefault("maxMessages", DefaultMaxMessages),
+            CurrentMessageCount = messageCount,
+            MaxDurationMinutes = config.GetValueOrDefault("maxDurationMinutes", DefaultMaxDurationMinutes),
+            CurrentDurationMinutes = durationMinutes
         };
     }
 

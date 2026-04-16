@@ -16,6 +16,8 @@ public interface ICatalogRepository
 
     Task<QuestionBank?> GetRandomQuestionAsync(string positionCode, IEnumerable<string> questionTypes, IEnumerable<Guid> excludedQuestionIds, CancellationToken cancellationToken = default);
 
+    Task<List<QuestionBank>> GetQuestionsByPositionAsync(string positionCode, IEnumerable<string> questionTypes, CancellationToken cancellationToken = default);
+
     Task<List<LearningResource>> GetLearningResourcesAsync(string? positionCode, IEnumerable<string>? dimensions, int limit, CancellationToken cancellationToken = default);
 
     Task<int> CountQuestionsByPositionAsync(string positionCode, CancellationToken cancellationToken = default);

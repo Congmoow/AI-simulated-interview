@@ -12,42 +12,75 @@ class CandidateQuestion(BaseModel):
     difficulty: str
 
 
-class StartInterviewRequest(BaseModel):
-    interview_id: UUID = Field(alias="interviewId")
-    position_code: str = Field(alias="positionCode")
-    interview_mode: str = Field(alias="interviewMode")
+class CurrentMainQuestion(BaseModel):
     round_number: int = Field(alias="roundNumber")
-    question_types: list[str] = Field(default_factory=list, alias="questionTypes")
-    source_question: CandidateQuestion = Field(alias="sourceQuestion")
-
-
-class StartInterviewResponse(BaseModel):
     question_id: UUID = Field(alias="questionId")
     title: str
     type: str
+    asked_content: str = Field(alias="askedContent")
+    follow_up_count: int = Field(alias="followUpCount")
+
+
+class InterviewMessage(BaseModel):
+    role: str
+    message_type: str = Field(alias="messageType")
     content: str
+    related_question_id: UUID | None = Field(default=None, alias="relatedQuestionId")
+    sequence: int
+
+
+class InterviewLimits(BaseModel):
+    max_main_questions: int = Field(alias="maxMainQuestions")
+    current_main_question_count: int = Field(alias="currentMainQuestionCount")
+    max_messages: int = Field(alias="maxMessages")
+    current_message_count: int = Field(alias="currentMessageCount")
+    max_duration_minutes: int = Field(alias="maxDurationMinutes")
+    current_duration_minutes: int = Field(alias="currentDurationMinutes")
+
+
+class StartInterviewRequest(BaseModel):
+    interview_id: UUID = Field(alias="interviewId")
+    position_code: str = Field(alias="positionCode")
+    position_name: str = Field(alias="positionName")
+    interview_mode: str = Field(alias="interviewMode")
+    question_types: list[str] = Field(default_factory=list, alias="questionTypes")
+    question_bank: list[CandidateQuestion] = Field(default_factory=list, alias="questionBank")
+    asked_question_ids: list[UUID] = Field(default_factory=list, alias="askedQuestionIds")
+    current_main_question: CurrentMainQuestion | None = Field(default=None, alias="currentMainQuestion")
+    recent_messages: list[InterviewMessage] = Field(default_factory=list, alias="recentMessages")
+    history_answer_summaries: list[str] = Field(default_factory=list, alias="historyAnswerSummaries")
+    limits: InterviewLimits
+
+
+class StartInterviewResponse(BaseModel):
+    action: str
+    message_type: str = Field(alias="messageType")
+    content: str
+    selected_question_id: UUID | None = Field(default=None, alias="selectedQuestionId")
     suggestions: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class AnswerInterviewRequest(BaseModel):
     interview_id: UUID = Field(alias="interviewId")
-    round_number: int = Field(alias="roundNumber")
-    interview_mode: str = Field(alias="interviewMode")
     position_code: str = Field(alias="positionCode")
-    question_title: str = Field(alias="questionTitle")
-    question_content: str = Field(alias="questionContent")
-    answer: str
-    follow_up_count: int = Field(alias="followUpCount")
-    current_round: int = Field(alias="currentRound")
-    total_rounds: int = Field(alias="totalRounds")
-    next_question_candidate: CandidateQuestion | None = Field(default=None, alias="nextQuestionCandidate")
+    position_name: str = Field(alias="positionName")
+    interview_mode: str = Field(alias="interviewMode")
+    question_bank: list[CandidateQuestion] = Field(default_factory=list, alias="questionBank")
+    asked_question_ids: list[UUID] = Field(default_factory=list, alias="askedQuestionIds")
+    current_main_question: CurrentMainQuestion | None = Field(default=None, alias="currentMainQuestion")
+    recent_messages: list[InterviewMessage] = Field(default_factory=list, alias="recentMessages")
+    history_answer_summaries: list[str] = Field(default_factory=list, alias="historyAnswerSummaries")
+    limits: InterviewLimits
 
 
 class AnswerInterviewResponse(BaseModel):
-    type: str
+    action: str
+    message_type: str = Field(alias="messageType")
     content: str
+    selected_question_id: UUID | None = Field(default=None, alias="selectedQuestionId")
     suggestions: list[str] = Field(default_factory=list)
-    next_question: CandidateQuestion | None = Field(default=None, alias="nextQuestion")
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ScoreRound(BaseModel):

@@ -33,6 +33,12 @@ file sealed class InMemoryInterviewRepository : IInterviewRepository
         return Task.CompletedTask;
     }
 
+    public Task AddMessageAsync(InterviewMessage message, CancellationToken cancellationToken = default)
+    {
+        Interview?.Messages.Add(message);
+        return Task.CompletedTask;
+    }
+
     public Task<Interview?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return Task.FromResult(Interview?.Id == id ? Interview : null);
@@ -41,6 +47,22 @@ file sealed class InMemoryInterviewRepository : IInterviewRepository
     public Task<Interview?> GetByIdWithDetailsAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return Task.FromResult(Interview?.Id == id ? Interview : null);
+    }
+
+    public Task<List<InterviewMessage>> GetMessagesAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(
+            Interview?.Id == id
+                ? Interview.Messages.OrderBy(item => item.Sequence).ToList()
+                : new List<InterviewMessage>());
+    }
+
+    public Task<int> GetNextMessageSequenceAsync(Guid interviewId, CancellationToken cancellationToken = default)
+    {
+        var next = Interview?.Messages.Count > 0
+            ? Interview.Messages.Max(item => item.Sequence) + 1
+            : 1;
+        return Task.FromResult(next);
     }
 
     public Task<List<Interview>> GetUserHistoryAsync(
@@ -168,6 +190,14 @@ file sealed class StubCatalogRepository : ICatalogRepository
         return Task.FromResult(RandomQuestion);
     }
 
+    public Task<List<QuestionBank>> GetQuestionsByPositionAsync(string positionCode, IEnumerable<string> questionTypes, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(
+            RandomQuestion is null
+                ? new List<QuestionBank>()
+                : new List<QuestionBank> { RandomQuestion });
+    }
+
     public Task<List<LearningResource>> GetLearningResourcesAsync(string? positionCode, IEnumerable<string>? dimensions, int limit, CancellationToken cancellationToken = default)
     {
         ResourceLookupCallCount += 1;
@@ -270,10 +300,10 @@ file sealed class StubAiIntegrationService : IAiIntegrationService
         StartCallCount += 1;
         return Task.FromResult(new StartInterviewAiResponse
         {
-            QuestionId = request.SourceQuestion.QuestionId,
-            Title = "Fallback-compatible opening question",
-            Type = request.SourceQuestion.Type,
+            Action = AiInterviewActions.Question,
+            MessageType = InterviewMessageTypes.Opening,
             Content = "Please introduce the most relevant project you have worked on.",
+            SelectedQuestionId = request.QuestionBank.FirstOrDefault()?.QuestionId,
             Suggestions = ["Start with context", "Explain your role"]
         });
     }
@@ -499,7 +529,7 @@ public class InterviewServiceTests
         result.PositionName.Should().Be(position.Name);
         result.FirstQuestion.QuestionId.Should().Be(question.Id);
         result.FirstQuestion.Type.Should().Be("project");
-        result.FirstQuestion.Title.Should().Be("Fallback-compatible opening question");
+        result.FirstQuestion.Title.Should().Be("Please introduce the most relevant project you have worked on.");
         aiIntegrationService.StartCallCount.Should().Be(1);
         interviewRepository.Interview.Should().NotBeNull();
     }
@@ -793,6 +823,7 @@ public class InterviewServiceTests
             StartedAt = DateTimeOffset.UtcNow.AddMinutes(-18),
             EndedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
             DurationSeconds = 1020,
+            Messages = [],
             Rounds =
             [
                 new InterviewRound

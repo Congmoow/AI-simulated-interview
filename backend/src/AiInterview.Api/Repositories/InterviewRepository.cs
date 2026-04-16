@@ -18,12 +18,18 @@ public class InterviewRepository(ApplicationDbContext dbContext) : IInterviewRep
         return dbContext.InterviewRounds.AddAsync(round, cancellationToken).AsTask();
     }
 
+    public Task AddMessageAsync(InterviewMessage message, CancellationToken cancellationToken = default)
+    {
+        return dbContext.InterviewMessages.AddAsync(message, cancellationToken).AsTask();
+    }
+
     public Task<Interview?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return dbContext.Interviews
             .Include(x => x.Position)
             .Include(x => x.Score)
             .Include(x => x.Report)
+            .Include(x => x.Messages.OrderBy(message => message.Sequence))
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
     }
 
@@ -34,7 +40,26 @@ public class InterviewRepository(ApplicationDbContext dbContext) : IInterviewRep
             .Include(x => x.Score)
             .Include(x => x.Report)
             .Include(x => x.Rounds.OrderBy(r => r.RoundNumber))
+            .Include(x => x.Messages.OrderBy(message => message.Sequence))
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+    }
+
+    public Task<List<InterviewMessage>> GetMessagesAsync(Guid interviewId, CancellationToken cancellationToken = default)
+    {
+        return dbContext.InterviewMessages
+            .Where(x => x.InterviewId == interviewId)
+            .OrderBy(x => x.Sequence)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<int> GetNextMessageSequenceAsync(Guid interviewId, CancellationToken cancellationToken = default)
+    {
+        var maxSequence = await dbContext.InterviewMessages
+            .Where(x => x.InterviewId == interviewId)
+            .Select(x => (int?)x.Sequence)
+            .MaxAsync(cancellationToken);
+
+        return (maxSequence ?? 0) + 1;
     }
 
     public Task<List<Guid>> GetInterviewIdsPendingReportGenerationAsync(CancellationToken cancellationToken = default)

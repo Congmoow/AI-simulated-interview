@@ -25,42 +25,49 @@ public class StartInterviewAiRequest
 {
     public Guid InterviewId { get; set; }
     public string PositionCode { get; set; } = string.Empty;
+    public string PositionName { get; set; } = string.Empty;
     public string InterviewMode { get; set; } = string.Empty;
-    public int RoundNumber { get; set; }
     public string[] QuestionTypes { get; set; } = [];
-    public CandidateQuestionDto SourceQuestion { get; set; } = new();
+    public List<CandidateQuestionDto> QuestionBank { get; set; } = [];
+    public List<Guid> AskedQuestionIds { get; set; } = [];
+    public CurrentMainQuestionAiDto? CurrentMainQuestion { get; set; }
+    public List<InterviewMessageAiDto> RecentMessages { get; set; } = [];
+    public List<string> HistoryAnswerSummaries { get; set; } = [];
+    public InterviewAiLimitsDto Limits { get; set; } = new();
 }
 
 public class StartInterviewAiResponse
 {
-    public Guid QuestionId { get; set; }
-    public string Title { get; set; } = string.Empty;
-    public string Type { get; set; } = string.Empty;
+    public string Action { get; set; } = string.Empty;
+    public string MessageType { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
+    public Guid? SelectedQuestionId { get; set; }
     public string[] Suggestions { get; set; } = [];
+    public Dictionary<string, object> Metadata { get; set; } = [];
 }
 
 public class AnswerAiRequest
 {
     public Guid InterviewId { get; set; }
-    public int RoundNumber { get; set; }
+    public string PositionName { get; set; } = string.Empty;
     public string InterviewMode { get; set; } = string.Empty;
     public string PositionCode { get; set; } = string.Empty;
-    public string QuestionTitle { get; set; } = string.Empty;
-    public string QuestionContent { get; set; } = string.Empty;
-    public string Answer { get; set; } = string.Empty;
-    public int FollowUpCount { get; set; }
-    public int CurrentRound { get; set; }
-    public int TotalRounds { get; set; }
-    public CandidateQuestionDto? NextQuestionCandidate { get; set; }
+    public List<CandidateQuestionDto> QuestionBank { get; set; } = [];
+    public List<Guid> AskedQuestionIds { get; set; } = [];
+    public CurrentMainQuestionAiDto? CurrentMainQuestion { get; set; }
+    public List<InterviewMessageAiDto> RecentMessages { get; set; } = [];
+    public List<string> HistoryAnswerSummaries { get; set; } = [];
+    public InterviewAiLimitsDto Limits { get; set; } = new();
 }
 
 public class AnswerAiResponse
 {
-    public string Type { get; set; } = string.Empty;
+    public string Action { get; set; } = string.Empty;
+    public string MessageType { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
     public string[] Suggestions { get; set; } = [];
-    public CandidateQuestionDto? NextQuestion { get; set; }
+    public Guid? SelectedQuestionId { get; set; }
+    public Dictionary<string, object> Metadata { get; set; } = [];
 }
 
 public class CandidateQuestionDto
@@ -70,6 +77,35 @@ public class CandidateQuestionDto
     public string Type { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
     public string Difficulty { get; set; } = string.Empty;
+}
+
+public class CurrentMainQuestionAiDto
+{
+    public int RoundNumber { get; set; }
+    public Guid QuestionId { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string Type { get; set; } = string.Empty;
+    public string AskedContent { get; set; } = string.Empty;
+    public int FollowUpCount { get; set; }
+}
+
+public class InterviewMessageAiDto
+{
+    public string Role { get; set; } = string.Empty;
+    public string MessageType { get; set; } = string.Empty;
+    public string Content { get; set; } = string.Empty;
+    public Guid? RelatedQuestionId { get; set; }
+    public int Sequence { get; set; }
+}
+
+public class InterviewAiLimitsDto
+{
+    public int MaxMainQuestions { get; set; }
+    public int CurrentMainQuestionCount { get; set; }
+    public int MaxMessages { get; set; }
+    public int CurrentMessageCount { get; set; }
+    public int MaxDurationMinutes { get; set; }
+    public int CurrentDurationMinutes { get; set; }
 }
 
 public class ScoreAiRequest

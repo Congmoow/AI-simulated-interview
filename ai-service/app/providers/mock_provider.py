@@ -1,17 +1,15 @@
-from uuid import uuid4
+from __future__ import annotations
 
-from app.providers.base import ModelProvider
 from app.schemas.document import ChunkResult, ProcessDocumentRequest, ProcessDocumentResponse
 from app.schemas.interview import (
     AnswerInterviewRequest,
     AnswerInterviewResponse,
-    DimensionScore,
     ScoreInterviewRequest,
     ScoreInterviewResponse,
     StartInterviewRequest,
     StartInterviewResponse,
 )
-from app.schemas.rag import RagSearchItem, RagSearchRequest, RagSearchResponse
+from app.schemas.rag import RagSearchRequest, RagSearchResponse
 from app.schemas.recommendation import (
     ResourceRecommendationRequest,
     ResourceRecommendationResponse,
@@ -21,72 +19,65 @@ from app.schemas.recommendation import (
 from app.schemas.report import GenerateReportRequest, GenerateReportResponse
 
 
-class MockProvider(ModelProvider):
-    model_version = "mock-v1"
-
+class MockProvider:
     def start_interview(self, request: StartInterviewRequest) -> StartInterviewResponse:
-        question = request.source_question
+        question = next(
+            (item for item in request.question_bank if item.question_id not in set(request.asked_question_ids)),
+            request.question_bank[0],
+        )
         return StartInterviewResponse(
-            questionId=question.question_id,
-            title=question.title,
-            type=question.type,
+            action="question",
+            messageType="opening",
             content=question.content,
-            suggestions=[
-                "Start with the business context",
-                "Explain your personal ownership",
-                "Close with trade-offs",
-            ],
+            selectedQuestionId=question.question_id,
+            suggestions=["先讲背景", "再讲职责与结果"],
+            metadata={"selectedQuestionTitle": question.title},
         )
 
     def answer_interview(self, request: AnswerInterviewRequest) -> AnswerInterviewResponse:
-        normalized_answer = request.answer.strip()
-        if request.follow_up_count == 0 and len(normalized_answer) < 120:
+        current_question = request.current_main_question
+        current_related_question_id = current_question.question_id if current_question is not None else None
+        latest_user_message = next(
+            (item for item in reversed(request.recent_messages) if item.role == "user"),
+            None,
+        )
+        normalized_answer = latest_user_message.content.strip() if latest_user_message is not None else ""
+
+        if current_question is not None and current_question.follow_up_count == 0 and len(normalized_answer) < 120:
             return AnswerInterviewResponse(
-                type="follow_up",
-                content="Your answer has the right direction. Add one implementation detail and explain why you chose it.",
-                suggestions=[
-                    "Mention a key config or code path",
-                    "Explain a performance or stability gain",
-                    "Clarify your own contribution",
-                ],
-                nextQuestion=None,
+                action="follow_up",
+                messageType="follow_up",
+                content="请再具体一点，补充一下你的职责边界、关键难点和最终结果。",
+                suggestions=["按背景-职责-难点-结果展开"],
+                metadata={"anchorQuestionId": str(current_related_question_id) if current_related_question_id else ""},
             )
 
-        if request.current_round >= request.total_rounds or request.next_question_candidate is None:
+        unasked_questions = [
+            item for item in request.question_bank if item.question_id not in set(request.asked_question_ids)
+        ]
+        if request.limits.current_main_question_count >= request.limits.max_main_questions or not unasked_questions:
             return AnswerInterviewResponse(
-                type="follow_up",
-                content="This round can end here. You can finish the interview and generate the report.",
-                suggestions=["Finish the interview", "Review the current round", "Check your current performance"],
-                nextQuestion=None,
+                action="finish",
+                messageType="closing",
+                content="本次面试先到这里，接下来我会基于刚才的交流为你生成报告。",
+                suggestions=["查看报告"],
+                metadata={"finishReason": "limit_or_exhausted"},
             )
 
+        next_question = unasked_questions[0]
         return AnswerInterviewResponse(
-            type="next_question",
-            content=request.next_question_candidate.title,
-            suggestions=[
-                "State the conclusion first",
-                "Describe trade-offs and risks",
-                "Keep the pace steady",
-            ],
-            nextQuestion=request.next_question_candidate,
+            action="question",
+            messageType="question",
+            content=next_question.content,
+            selectedQuestionId=next_question.question_id,
+            suggestions=["结合真实经历回答"],
+            metadata={"selectedQuestionTitle": next_question.title},
         )
 
     def score_interview(self, request: ScoreInterviewRequest) -> ScoreInterviewResponse:
         answered_rounds = [round_item for round_item in request.rounds if round_item.answer]
         completion_ratio = len(answered_rounds) / max(len(request.rounds), 1)
         overall_score = round(68 + completion_ratio * 18 + min(len(answered_rounds), 5) * 1.6, 2)
-
-        dimension_scores = {
-            "technicalAccuracy": DimensionScore(score=min(overall_score + 2, 95), weight=0.30),
-            "knowledgeDepth": DimensionScore(score=min(overall_score - 1, 92), weight=0.20),
-            "logicalThinking": DimensionScore(score=min(overall_score + 1.5, 94), weight=0.15),
-            "positionMatch": DimensionScore(score=min(overall_score + 0.5, 93), weight=0.15),
-            "projectAuthenticity": DimensionScore(score=min(overall_score - 2, 90), weight=0.10),
-            "fluency": DimensionScore(score=min(overall_score + 3, 96), weight=0.05),
-            "clarity": DimensionScore(score=min(overall_score + 2.5, 96), weight=0.03),
-            "confidence": DimensionScore(score=min(overall_score + 1, 95), weight=0.02),
-        }
-
         score_breakdown: dict[str, object] = {}
         for round_item in answered_rounds:
             round_score = min(60 + len((round_item.answer or "").strip()) / 8, 92)
@@ -100,99 +91,59 @@ class MockProvider(ModelProvider):
 
         return ScoreInterviewResponse(
             overallScore=overall_score,
-            dimensionScores=dimension_scores,
+            rankPercentile=round(min(99, overall_score + 8), 2),
+            dimensionScores={
+                "technicalAccuracy": {"score": round(min(95, overall_score + 1), 2), "weight": 0.3},
+                "knowledgeDepth": {"score": round(max(55, overall_score - 2), 2), "weight": 0.2},
+                "logicalThinking": {"score": round(overall_score, 2), "weight": 0.15},
+                "positionMatch": {"score": round(min(94, overall_score + 3), 2), "weight": 0.15},
+                "projectAuthenticity": {"score": round(max(58, overall_score - 1), 2), "weight": 0.1},
+                "fluency": {"score": round(min(96, overall_score + 4), 2), "weight": 0.05},
+                "clarity": {"score": round(min(96, overall_score + 2), 2), "weight": 0.03},
+                "confidence": {"score": round(min(95, overall_score + 1), 2), "weight": 0.02},
+            },
             dimensionDetails={
-                "technicalAccuracy": "Fundamentals are stable, but more implementation detail would help.",
-                "knowledgeDepth": "The main path is covered. More low-level explanation is still needed.",
-                "logicalThinking": "The answer structure is clear and conclusions connect well to examples.",
+                "technicalAccuracy": "Technical topics connected back to project context",
             },
             scoreBreakdown=score_breakdown,
-            rankPercentile=min(88.0, overall_score),
-            modelVersion=self.model_version,
+            modelVersion="mock-provider-v2",
         )
 
     def generate_report(self, request: GenerateReportRequest) -> GenerateReportResponse:
-        overall = request.overall_score
         return GenerateReportResponse(
-            executiveSummary=f"The mock interview was stable overall, with a score of {overall:.0f}.",
-            strengths=[
-                "Clear answer structure",
-                "Technical topics connected back to project context",
-                "Steady communication rhythm",
-            ],
-            weaknesses=[
-                "Low-level explanations can still go deeper",
-                "Trade-offs can be stated more explicitly",
-            ],
-            detailedAnalysis={
-                "technicalAccuracy": "Answers are mostly correct, but some details stay at a high level.",
-                "projectAuthenticity": "Project examples sound credible; more business constraints would help.",
-            },
-            learningSuggestions=[
-                "Review core principles behind your weak areas",
-                "Turn recent projects into STAR stories",
-                "Practice timed verbal answers twice a week",
-            ],
-            trainingPlan=[
-                {
-                    "week": 1,
-                    "topic": "core principles",
-                    "tasks": ["整理 5 个高频原理题", "用自己的话重讲一遍"],
-                },
-                {
-                    "week": 2,
-                    "topic": "project narrative",
-                    "tasks": ["沉淀 3 个项目案例", "补齐指标和结果"],
-                },
-            ],
-            nextInterviewFocus=["low-level mechanism", "project trade-offs", "pressure follow-up"],
-            modelVersion=self.model_version,
+            executiveSummary="mock summary",
+            strengths=["结构清晰"],
+            weaknesses=["深度不足"],
+            detailedAnalysis={"topic": "core principles"},
+            learningSuggestions=["补强底层原理"],
+            trainingPlan=[],
+            nextInterviewFocus=["project trade-offs"],
+            modelVersion="mock-provider-v2",
         )
 
     def recommend_resources(self, request: ResourceRecommendationRequest) -> ResourceRecommendationResponse:
-        return ResourceRecommendationResponse(
-            targetDimensions=["technicalAccuracy", "knowledgeDepth", "clarity"],
-            matchScores={
-                "technicalAccuracy": 0.95,
-                "knowledgeDepth": 0.91,
-                "clarity": 0.88,
-            },
-            reason="Mock recommendation based on weaker dimensions.",
-        )
+        raise NotImplementedError
 
     def generate_training_plan(self, request: TrainingPlanRequest) -> TrainingPlanResponse:
-        return TrainingPlanResponse(
-            weeks=4,
-            dailyCommitment="2 hours",
-            goals=["strengthen weak dimensions", "improve high-frequency answers"],
-            schedule=[],
-            milestones=[],
-        )
+        raise NotImplementedError
 
     def search_rag(self, request: RagSearchRequest) -> RagSearchResponse:
-        return RagSearchResponse(
-            query=request.query,
-            items=[
-                RagSearchItem(
-                    documentId=uuid4(),
-                    chunkId=str(uuid4()),
-                    title="Mock knowledge",
-                    content="Mock RAG result",
-                    score=0.88,
-                    metadata={"positionCode": request.position_code},
-                )
-            ],
-        )
+        raise NotImplementedError
 
     def process_document(self, request: ProcessDocumentRequest) -> ProcessDocumentResponse:
-        return ProcessDocumentResponse(
-            documentId=request.document_id,
-            chunks=[
-                ChunkResult(
-                    chunkIndex=0,
-                    content=f"Processed: {request.title}",
-                    tokenCount=max(20, len(request.title)),
-                    metadata={"source": "mock-provider"},
-                )
-            ],
-        )
+        chunk_count = max(1, len(request.title) // 10 + 3)
+        chunks = [
+            ChunkResult(
+                chunkIndex=index,
+                content=f"[{request.title}] chunk {index + 1}",
+                tokenCount=max(10, len(request.title) + 20),
+                metadata={
+                    "source": "mock-provider",
+                    "fileName": request.file_name,
+                    "fileType": request.file_type,
+                    "chunkIndex": index,
+                },
+            )
+            for index in range(chunk_count)
+        ]
+        return ProcessDocumentResponse(documentId=request.document_id, chunks=chunks)

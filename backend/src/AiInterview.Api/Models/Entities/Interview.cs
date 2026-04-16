@@ -36,6 +36,8 @@ public class Interview
 
     public ICollection<InterviewRound> Rounds { get; set; } = [];
 
+    public ICollection<InterviewMessage> Messages { get; set; } = [];
+
     public InterviewScore? Score { get; set; }
 
     public InterviewReport? Report { get; set; }
