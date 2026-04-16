@@ -78,21 +78,25 @@ class OpenAICompatibleProvider(ModelProvider):
         self._http_client: httpx.Client | None = None
 
     def start_interview(self, request: StartInterviewRequest) -> StartInterviewResponse:
+        start_timeout_seconds = 12.0
+        start_max_tokens = min(max(self.settings.max_tokens, 120), 220)
         try:
             payload = self._chat_json(
                 step="start_interview",
                 system_prompt=(
-                    "You are a Chinese technical interviewer. "
-                    "Return JSON only with title, content and suggestions."
+                    "你是中文技术面试官。"
+                    "基于给定题干生成首题。"
+                    "仅返回 JSON：title、content、suggestions。"
+                    "content 只保留一句话，suggestions 最多 2 条短语。"
                 ),
                 user_prompt=(
-                    f"Position: {request.position_code}\n"
-                    f"Mode: {request.interview_mode}\n"
-                    f"Question title: {request.source_question.title}\n"
-                    f"Question content: {request.source_question.content}"
+                    f"岗位：{request.position_code}\n"
+                    f"题目：{request.source_question.title}\n"
+                    f"题干：{request.source_question.content}"
                 ),
                 temperature=max(self.settings.temperature, 0.2),
-                max_tokens=min(max(self.settings.max_tokens, 256), 800),
+                max_tokens=start_max_tokens,
+                timeout_seconds=start_timeout_seconds,
             )
             title = self._as_text(payload.get("title"))
             content = self._as_text(payload.get("content"))
@@ -104,7 +108,7 @@ class OpenAICompatibleProvider(ModelProvider):
                 title=title,
                 type=request.source_question.type,
                 content=content,
-                suggestions=self._as_str_list(payload.get("suggestions")),
+                suggestions=self._as_str_list(payload.get("suggestions"))[:2],
             )
         except Exception as exc:
             self._log_step_failure("start_interview", exc)

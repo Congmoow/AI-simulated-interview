@@ -1,5 +1,6 @@
 using AiInterview.Api.Constants;
 using AiInterview.Api.DTOs.Admin;
+using AiInterview.Api.DTOs.Interviews;
 using AiInterview.Api.DTOs.Reports;
 using AiInterview.Api.Hubs;
 using AiInterview.Api.Models.Entities;
@@ -20,7 +21,11 @@ file sealed class InMemoryInterviewRepository : IInterviewRepository
 
     public List<Guid> PendingGeneratingReportInterviewIds { get; set; } = [];
 
-    public Task AddInterviewAsync(Interview interview, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task AddInterviewAsync(Interview interview, CancellationToken cancellationToken = default)
+    {
+        Interview = interview;
+        return Task.CompletedTask;
+    }
 
     public Task AddRoundAsync(InterviewRound round, CancellationToken cancellationToken = default)
     {
@@ -141,9 +146,16 @@ file sealed class StubCatalogRepository : ICatalogRepository
 {
     public int ResourceLookupCallCount { get; private set; }
 
+    public Position? Position { get; set; }
+
+    public QuestionBank? RandomQuestion { get; set; }
+
     public Task<List<Position>> GetActivePositionsAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
-    public Task<Position?> GetPositionByCodeAsync(string code, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public Task<Position?> GetPositionByCodeAsync(string code, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(Position?.Code == code ? Position : null);
+    }
 
     public Task<List<QuestionBank>> GetQuestionsAsync(string? positionCode, string? type, string? difficulty, int page, int pageSize, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
@@ -151,7 +163,10 @@ file sealed class StubCatalogRepository : ICatalogRepository
 
     public Task<QuestionBank?> GetQuestionByIdAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
-    public Task<QuestionBank?> GetRandomQuestionAsync(string positionCode, IEnumerable<string> questionTypes, IEnumerable<Guid> excludedQuestionIds, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public Task<QuestionBank?> GetRandomQuestionAsync(string positionCode, IEnumerable<string> questionTypes, IEnumerable<Guid> excludedQuestionIds, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(RandomQuestion);
+    }
 
     public Task<List<LearningResource>> GetLearningResourcesAsync(string? positionCode, IEnumerable<string>? dimensions, int limit, CancellationToken cancellationToken = default)
     {
@@ -236,6 +251,8 @@ file sealed class StubAiProvider : IAiProvider
 
 file sealed class StubAiIntegrationService : IAiIntegrationService
 {
+    public int StartCallCount { get; private set; }
+
     public int ScoreCallCount { get; private set; }
 
     public int GenerateReportCallCount { get; private set; }
@@ -248,7 +265,18 @@ file sealed class StubAiIntegrationService : IAiIntegrationService
 
     public ScoreAiRequest? LastScoreRequest { get; private set; }
 
-    public Task<StartInterviewAiResponse> StartInterviewAsync(StartInterviewAiRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public Task<StartInterviewAiResponse> StartInterviewAsync(StartInterviewAiRequest request, CancellationToken cancellationToken = default)
+    {
+        StartCallCount += 1;
+        return Task.FromResult(new StartInterviewAiResponse
+        {
+            QuestionId = request.SourceQuestion.QuestionId,
+            Title = "Fallback-compatible opening question",
+            Type = request.SourceQuestion.Type,
+            Content = "Please introduce the most relevant project you have worked on.",
+            Suggestions = ["Start with context", "Explain your role"]
+        });
+    }
 
     public Task<AnswerAiResponse> AnswerAsync(AnswerAiRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
@@ -426,6 +454,56 @@ file sealed class StubHubContext : IHubContext<InterviewHub, IInterviewClient>
 
 public class InterviewServiceTests
 {
+    [Fact]
+    public async Task CreateInterviewAsync_ShouldReturnStartQuestionShape_WhenAiServiceProvidesOpeningQuestion()
+    {
+        var userId = Guid.NewGuid();
+        var position = new Position
+        {
+            Code = "java-backend",
+            Name = "Java Backend"
+        };
+        var question = new QuestionBank
+        {
+            Id = Guid.NewGuid(),
+            PositionCode = position.Code,
+            Type = "project",
+            Title = "Introduce your most relevant project",
+            Content = "Describe the project, your role and the result",
+            Difficulty = "medium"
+        };
+        var interviewRepository = new InMemoryInterviewRepository();
+        var catalogRepository = new StubCatalogRepository
+        {
+            Position = position,
+            RandomQuestion = question
+        };
+        var aiIntegrationService = new StubAiIntegrationService();
+        var service = new InterviewService(
+            interviewRepository,
+            catalogRepository,
+            new InMemoryReportRepository(),
+            aiIntegrationService,
+            new StubAiSettingsService(),
+            new StubInterviewReportGenerationQueue(),
+            new StubHubContext(),
+            NullLogger<InterviewService>.Instance);
+
+        var result = await service.CreateInterviewAsync(userId, new CreateInterviewRequest
+        {
+            PositionCode = position.Code,
+            InterviewMode = "standard"
+        });
+
+        result.PositionCode.Should().Be(position.Code);
+        result.PositionName.Should().Be(position.Name);
+        result.FirstQuestion.QuestionId.Should().Be(question.Id);
+        result.FirstQuestion.Type.Should().Be("project");
+        result.FirstQuestion.Title.Should().Be("Fallback-compatible opening question");
+        aiIntegrationService.StartCallCount.Should().Be(1);
+        interviewRepository.Interview.Should().NotBeNull();
+    }
+
     [Fact]
     public async Task FinishInterviewAsync_ShouldEnqueueReportGenerationAndReturnImmediately()
     {

@@ -169,7 +169,7 @@ def test_generate_report_should_use_real_ai_response(monkeypatch) -> None:
 
 def test_score_and_report_should_use_new_timeouts_and_skip_finish_step(monkeypatch) -> None:
     provider = _build_provider()
-    calls: list[tuple[str, float]] = []
+    calls: list[tuple[str, float, int]] = []
 
     def fake_chat_text(
         *,
@@ -180,7 +180,7 @@ def test_score_and_report_should_use_new_timeouts_and_skip_finish_step(monkeypat
         max_tokens: int,
         timeout_seconds: float = 30.0,
     ) -> str:
-        calls.append((step, timeout_seconds))
+        calls.append((step, timeout_seconds, max_tokens))
         if step == "start_interview":
             return '{"title":"Project intro","content":"Tell me about your system","suggestions":["start with scope"]}'
         if step == "answer_interview":
@@ -199,10 +199,10 @@ def test_score_and_report_should_use_new_timeouts_and_skip_finish_step(monkeypat
     provider.generate_report(_build_report_request())
 
     assert calls == [
-        ("start_interview", 30.0),
-        ("answer_interview", 30.0),
-        ("score_interview", 45.0),
-        ("generate_report", 60.0),
+        ("start_interview", 12.0, 220),
+        ("answer_interview", 30.0, 512),
+        ("score_interview", 45.0, 512),
+        ("generate_report", 60.0, 600),
     ]
 
 
