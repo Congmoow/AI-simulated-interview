@@ -2,8 +2,6 @@ from app.providers.base import ModelProvider
 from app.schemas.interview import (
     AnswerInterviewRequest,
     AnswerInterviewResponse,
-    FinishInterviewRequest,
-    FinishInterviewResponse,
     StartInterviewRequest,
     StartInterviewResponse,
 )
@@ -18,6 +16,3 @@ class InterviewService:
 
     def answer(self, request: AnswerInterviewRequest) -> AnswerInterviewResponse:
         return self.provider.answer_interview(request)
-
-    def finish(self, request: FinishInterviewRequest) -> FinishInterviewResponse:
-        return self.provider.finish_interview(request)

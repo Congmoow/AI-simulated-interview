@@ -9,14 +9,13 @@ from app.schemas.interview import (
     AnswerInterviewRequest,
     CandidateQuestion,
     DimensionScore,
-    FinishInterviewRequest,
     ScoreInterviewRequest,
     ScoreRound,
     StartInterviewRequest,
 )
-from app.schemas.report import GenerateReportRequest
-from app.schemas.recommendation import ResourceRecommendationRequest, TrainingPlanRequest
 from app.schemas.rag import RagSearchRequest
+from app.schemas.recommendation import ResourceRecommendationRequest, TrainingPlanRequest
+from app.schemas.report import GenerateReportRequest
 from app.services.backend_ai_settings import RuntimeAiSettings
 
 
@@ -37,9 +36,9 @@ def _build_provider() -> OpenAICompatibleProvider:
 def _build_candidate_question() -> CandidateQuestion:
     return CandidateQuestion(
         questionId=uuid4(),
-        title="介绍项目",
+        title="Introduce your project",
         type="project",
-        content="请介绍你做过的项目",
+        content="Describe an order system you built",
         difficulty="medium",
     )
 
@@ -61,21 +60,13 @@ def _build_answer_request() -> AnswerInterviewRequest:
         roundNumber=1,
         interviewMode="standard",
         positionCode="java-backend",
-        questionTitle="介绍项目",
-        questionContent="请介绍你做过的项目",
-        answer="我负责订单系统。",
+        questionTitle="Introduce your project",
+        questionContent="Describe an order system you built",
+        answer="I owned ordering and inventory consistency",
         followUpCount=0,
         currentRound=1,
         totalRounds=3,
         nextQuestionCandidate=_build_candidate_question(),
-    )
-
-
-def _build_finish_request() -> FinishInterviewRequest:
-    return FinishInterviewRequest(
-        interviewId=uuid4(),
-        positionCode="java-backend",
-        totalRounds=3,
     )
 
 
@@ -87,10 +78,10 @@ def _build_score_request() -> ScoreInterviewRequest:
             ScoreRound(
                 roundNumber=1,
                 questionType="project",
-                questionTitle="介绍项目",
-                questionContent="请介绍你做过的项目",
-                answer="我负责订单系统。",
-                followUps=["请继续说明性能优化。"],
+                questionTitle="Introduce your project",
+                questionContent="Describe an order system you built",
+                answer="I owned ordering and inventory consistency",
+                followUps=["Show load test details", "Explain retry strategy", "Share metrics"],
             )
         ],
     )
@@ -104,14 +95,17 @@ def _build_report_request() -> GenerateReportRequest:
         dimensionScores={
             "technicalAccuracy": DimensionScore(score=80, weight=0.3),
         },
+        dimensionDetails={
+            "technicalAccuracy": "Strong fundamentals but should add more metrics.",
+        },
         rounds=[
             ScoreRound(
                 roundNumber=1,
                 questionType="project",
-                questionTitle="介绍项目",
-                questionContent="请介绍你做过的项目",
-                answer="我负责订单系统。",
-                followUps=["请继续说明性能优化。"],
+                questionTitle="Introduce your project",
+                questionContent="Describe an order system you built",
+                answer="I owned ordering and inventory consistency",
+                followUps=["Show load test details", "Explain retry strategy", "Share metrics"],
             )
         ],
     )
@@ -126,7 +120,7 @@ def test_secondary_methods_should_raise_not_implemented() -> None:
             ResourceRecommendationRequest(
                 interviewId=interview_id,
                 positionCode="java-backend",
-                weaknesses=["技术深度"],
+                weaknesses=["depth"],
             )
         )
 
@@ -135,14 +129,14 @@ def test_secondary_methods_should_raise_not_implemented() -> None:
             TrainingPlanRequest(
                 interviewId=interview_id,
                 positionCode="java-backend",
-                weaknesses=["表达清晰度"],
+                weaknesses=["clarity"],
             )
         )
 
     with pytest.raises(NotImplementedError):
         provider.search_rag(
             RagSearchRequest(
-                query="Spring 事务传播",
+                query="Spring transaction propagation",
                 positionCode="java-backend",
                 topK=3,
             )
@@ -156,24 +150,24 @@ def test_generate_report_should_use_real_ai_response(monkeypatch) -> None:
         provider,
         "_chat_json",
         lambda **_: {
-            "executiveSummary": "总结",
-            "strengths": ["优点1"],
-            "weaknesses": ["不足1"],
-            "detailedAnalysis": {"technicalAccuracy": "分析"},
-            "learningSuggestions": ["建议1"],
-            "trainingPlan": [{"week": 1, "focus": "基础"}],
-            "nextInterviewFocus": ["项目深挖"],
+            "executiveSummary": "summary",
+            "strengths": ["strength-1"],
+            "weaknesses": ["weakness-1"],
+            "detailedAnalysis": {"technicalAccuracy": "analysis"},
+            "learningSuggestions": ["suggestion-1"],
+            "trainingPlan": [{"week": 1, "focus": "basics"}],
+            "nextInterviewFocus": ["go deeper on metrics"],
         },
     )
 
     response = provider.generate_report(_build_report_request())
 
-    assert response.executive_summary == "总结"
-    assert response.strengths == ["优点1"]
+    assert response.executive_summary == "summary"
+    assert response.strengths == ["strength-1"]
     assert response.model_version == "qwen:qwen-plus"
 
 
-def test_score_and_report_should_use_explicit_75s_timeout_and_other_steps_keep_default(monkeypatch) -> None:
+def test_score_and_report_should_use_new_timeouts_and_skip_finish_step(monkeypatch) -> None:
     provider = _build_provider()
     calls: list[tuple[str, float]] = []
 
@@ -188,31 +182,27 @@ def test_score_and_report_should_use_explicit_75s_timeout_and_other_steps_keep_d
     ) -> str:
         calls.append((step, timeout_seconds))
         if step == "start_interview":
-            return '{"title":"项目介绍","content":"请介绍你负责的项目","suggestions":["先讲背景"]}'
+            return '{"title":"Project intro","content":"Tell me about your system","suggestions":["start with scope"]}'
         if step == "answer_interview":
-            return '{"decision":"follow_up","content":"请继续补充细节","suggestions":["讲清指标"]}'
-        if step == "finish_interview":
-            return "面试结束。"
+            return '{"decision":"follow_up","content":"Add more details","suggestions":["mention metrics"]}'
         if step == "score_interview":
-            return '{"overallScore":85,"rankPercentile":88,"dimensionScores":{"technicalAccuracy":82,"knowledgeDepth":80,"logicalThinking":83,"positionMatch":84,"projectAuthenticity":81,"fluency":86,"clarity":85,"confidence":84},"dimensionDetails":{"technicalAccuracy":"稳定"},"scoreBreakdown":{}}'
+            return '{"overallScore":85,"rankPercentile":88,"dimensionScores":{"technicalAccuracy":82,"knowledgeDepth":80,"logicalThinking":83,"positionMatch":84,"projectAuthenticity":81,"fluency":86,"clarity":85,"confidence":84},"dimensionDetails":{"technicalAccuracy":"stable"},"scoreBreakdown":{}}'
         if step == "generate_report":
-            return '{"executiveSummary":"总结","strengths":["优点"],"weaknesses":["不足"],"detailedAnalysis":{"technicalAccuracy":"分析"},"learningSuggestions":["建议"],"trainingPlan":[],"nextInterviewFocus":["项目深挖"]}'
+            return '{"executiveSummary":"summary","strengths":["strength"],"weaknesses":["weakness"],"detailedAnalysis":{"technicalAccuracy":"analysis"},"learningSuggestions":["suggestion"],"trainingPlan":[],"nextInterviewFocus":["go deeper"]}'
         raise AssertionError(step)
 
     monkeypatch.setattr(provider, "_chat_text", fake_chat_text)
 
     provider.start_interview(_build_start_request())
     provider.answer_interview(_build_answer_request())
-    provider.finish_interview(_build_finish_request())
     provider.score_interview(_build_score_request())
     provider.generate_report(_build_report_request())
 
     assert calls == [
         ("start_interview", 30.0),
         ("answer_interview", 30.0),
-        ("finish_interview", 30.0),
-        ("score_interview", 75.0),
-        ("generate_report", 75.0),
+        ("score_interview", 45.0),
+        ("generate_report", 60.0),
     ]
 
 
@@ -225,13 +215,13 @@ def test_build_score_rounds_text_should_trim_fields_and_total_length() -> None:
             ScoreRound(
                 roundNumber=index + 1,
                 questionType="scenario",
-                questionTitle="题目" + ("A" * 400),
-                questionContent="内容" + ("B" * 1000),
-                answer="回答" + ("C" * 1600),
+                questionTitle="Question" + ("A" * 400),
+                questionContent="Content" + ("B" * 1000),
+                answer="Answer" + ("C" * 1600),
                 followUps=[
-                    "追问1" + ("D" * 300),
-                    "追问2" + ("E" * 300),
-                    "追问3" + ("F" * 300),
+                    "Follow-up-1" + ("D" * 300),
+                    "Follow-up-2" + ("E" * 300),
+                    "Follow-up-3" + ("F" * 300),
                 ],
             )
             for index in range(6)
@@ -240,9 +230,9 @@ def test_build_score_rounds_text_should_trim_fields_and_total_length() -> None:
 
     summary = provider._build_score_rounds_text(request.rounds)
 
-    assert len(summary) <= 2400
-    assert "追问1" not in summary
-    assert ("[TRUNCATED]" in summary) or (len(summary) < 2400)
+    assert len(summary) <= 1800
+    assert "Follow-up-1" not in summary
+    assert ("[TRUNCATED]" in summary) or (len(summary) < 1800)
 
 
 def test_build_report_rounds_text_should_trim_fields_and_total_length() -> None:
@@ -252,17 +242,18 @@ def test_build_report_rounds_text_should_trim_fields_and_total_length() -> None:
         positionCode="java-backend",
         overallScore=88,
         dimensionScores={},
+        dimensionDetails={},
         rounds=[
             ScoreRound(
                 roundNumber=index + 1,
                 questionType="scenario",
-                questionTitle="题目" + ("A" * 400),
-                questionContent="内容" + ("B" * 1000),
-                answer="回答" + ("C" * 1600),
+                questionTitle="Question" + ("A" * 400),
+                questionContent="Content" + ("B" * 1000),
+                answer="Answer" + ("C" * 1600),
                 followUps=[
-                    "追问1" + ("D" * 300),
-                    "追问2" + ("E" * 300),
-                    "追问3" + ("F" * 300),
+                    "Follow-up-1" + ("D" * 300),
+                    "Follow-up-2" + ("E" * 300),
+                    "Follow-up-3" + ("F" * 300),
                 ],
             )
             for index in range(6)
@@ -271,9 +262,11 @@ def test_build_report_rounds_text_should_trim_fields_and_total_length() -> None:
 
     summary = provider._build_report_rounds_text(request.rounds)
 
-    assert len(summary) <= 2400
-    assert "追问1" not in summary
-    assert ("[TRUNCATED]" in summary) or (len(summary) < 2400)
+    assert len(summary) <= 1200
+    assert "Follow-up-1" not in summary
+    assert "Follow-up-2" not in summary
+    assert ("Follow-up-3" in summary) or ("[TRUNCATED]" in summary)
+    assert ("[TRUNCATED]" in summary) or (len(summary) < 1200)
 
 
 def test_generate_report_should_normalize_non_core_fields(monkeypatch) -> None:
@@ -283,25 +276,25 @@ def test_generate_report_should_normalize_non_core_fields(monkeypatch) -> None:
         provider,
         "_chat_json",
         lambda **_: {
-            "summary": "这是一段总结",
-            "strengths": "结构清晰",
-            "weaknesses": ["细节略少"],
-            "learningSuggestions": "补充指标",
-            "detailedAnalysis": ["分析项1", "分析项2"],
-            "trainingPlan": {"week": 1, "topic": "缓存"},
-            "nextInterviewFocus": "一致性设计",
+            "summary": "summary from fallback key",
+            "strengths": "clear structure",
+            "weaknesses": ["not enough detail"],
+            "learningSuggestions": "add metrics",
+            "detailedAnalysis": ["analysis-item-1", "analysis-item-2"],
+            "trainingPlan": {"week": 1, "topic": "cache"},
+            "nextInterviewFocus": "consistency design",
         },
     )
 
     response = provider.generate_report(_build_report_request())
 
-    assert response.executive_summary == "这是一段总结"
-    assert response.strengths == ["结构清晰"]
-    assert response.weaknesses == ["细节略少"]
-    assert response.learning_suggestions == ["补充指标"]
-    assert response.detailed_analysis == {"items": ["分析项1", "分析项2"]}
-    assert response.training_plan == [{"week": 1, "topic": "缓存"}]
-    assert response.next_interview_focus == ["一致性设计"]
+    assert response.executive_summary == "summary from fallback key"
+    assert response.strengths == ["clear structure"]
+    assert response.weaknesses == ["not enough detail"]
+    assert response.learning_suggestions == ["add metrics"]
+    assert response.detailed_analysis == {"items": ["analysis-item-1", "analysis-item-2"]}
+    assert response.training_plan == [{"week": 1, "topic": "cache"}]
+    assert response.next_interview_focus == ["consistency design"]
 
 
 def test_generate_report_should_accept_minimal_report_payload(monkeypatch) -> None:
@@ -311,19 +304,19 @@ def test_generate_report_should_accept_minimal_report_payload(monkeypatch) -> No
         provider,
         "_chat_json",
         lambda **_: {
-            "executiveSummary": "最小总结",
-            "strengths": ["优点"],
-            "weaknesses": ["不足"],
-            "learningSuggestions": ["建议"],
+            "executiveSummary": "minimal summary",
+            "strengths": ["strength"],
+            "weaknesses": ["weakness"],
+            "learningSuggestions": ["suggestion"],
         },
     )
 
     response = provider.generate_report(_build_report_request())
 
-    assert response.executive_summary == "最小总结"
-    assert response.strengths == ["优点"]
-    assert response.weaknesses == ["不足"]
-    assert response.learning_suggestions == ["建议"]
+    assert response.executive_summary == "minimal summary"
+    assert response.strengths == ["strength"]
+    assert response.weaknesses == ["weakness"]
+    assert response.learning_suggestions == ["suggestion"]
     assert response.detailed_analysis == {}
     assert response.training_plan == []
     assert response.next_interview_focus == []
@@ -336,8 +329,8 @@ def test_score_interview_should_log_observability_fields_on_timeout(monkeypatch,
 
     def raise_provider_call_error(**_: object) -> dict[str, object]:
         raise ProviderCallError(
-            "score_interview 请求上游失败",
-            timeout_seconds=75.0,
+            "score_interview request failed",
+            timeout_seconds=45.0,
             elapsed_ms=31234.0,
             received_response_headers=False,
         ) from timeout_error
@@ -350,7 +343,7 @@ def test_score_interview_should_log_observability_fields_on_timeout(monkeypatch,
 
     message = "\n".join(caplog.messages)
     assert "round_count=1" in message
-    assert "timeout_seconds=75.0" in message
+    assert "timeout_seconds=45.0" in message
     assert "received_response_headers=False" in message
     assert "input_summary_length=" in message
     assert "inner_exception=ReadTimeout" in message
@@ -363,8 +356,8 @@ def test_generate_report_should_log_observability_fields_on_timeout(monkeypatch,
 
     def raise_provider_call_error(**_: object) -> dict[str, object]:
         raise ProviderCallError(
-            "generate_report 请求上游失败",
-            timeout_seconds=75.0,
+            "generate_report request failed",
+            timeout_seconds=60.0,
             elapsed_ms=40123.0,
             received_response_headers=False,
         ) from timeout_error
@@ -377,7 +370,51 @@ def test_generate_report_should_log_observability_fields_on_timeout(monkeypatch,
 
     message = "\n".join(caplog.messages)
     assert "step=generate_report" in message
-    assert "timeout_seconds=75.0" in message
+    assert "timeout_seconds=60.0" in message
     assert "input_summary_length=" in message
     assert "inner_exception=ReadTimeout" in message
     assert "response_body_snippet=" in message
+
+
+def test_chat_text_should_reuse_shared_http_client(monkeypatch) -> None:
+    provider = _build_provider()
+    created_clients: list[tuple[str, str]] = []
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+    class FakeClient:
+        def post(self, *args, **kwargs) -> FakeResponse:
+            return FakeResponse()
+
+    def fake_get_client(base_url: str, api_key: str) -> FakeClient:
+        created_clients.append((base_url, api_key))
+        return FakeClient()
+
+    monkeypatch.setattr(
+        "app.providers.openai_compatible_provider.get_shared_http_client",
+        fake_get_client,
+    )
+
+    provider._chat_text(
+        step="score_interview",
+        system_prompt="system",
+        user_prompt="user",
+        temperature=0.2,
+        max_tokens=128,
+        timeout_seconds=45.0,
+    )
+    provider._chat_text(
+        step="generate_report",
+        system_prompt="system",
+        user_prompt="user",
+        temperature=0.2,
+        max_tokens=128,
+        timeout_seconds=60.0,
+    )
+
+    assert created_clients == [("https://example.com/v1", "secret-key")]

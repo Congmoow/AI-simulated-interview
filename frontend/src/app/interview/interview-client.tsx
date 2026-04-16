@@ -46,6 +46,14 @@ const INTERVIEW_MODE_OPTIONS = [
   },
 ] as const;
 
+const REPORT_STAGE_LABELS: Record<string, string> = {
+  ended: "结束状态已保存",
+  scoring: "正在评分",
+  reporting: "正在生成报告",
+  saving: "正在写入结果",
+  completed: "报告已完成",
+};
+
 export function InterviewClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -66,6 +74,11 @@ export function InterviewClient() {
   const [startingPositionCode, setStartingPositionCode] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reportProgress, setReportProgress] = useState<{
+    progress: number;
+    stage: string;
+    estimatedTime: number;
+  } | null>(null);
   const interviewModeIndex = Math.max(
     0,
     INTERVIEW_MODE_OPTIONS.findIndex((option) => option.value === interviewMode),
@@ -93,6 +106,8 @@ export function InterviewClient() {
     () => detail?.rounds[detail.rounds.length - 1] ?? null,
     [detail],
   );
+  const isReportGenerating = detail?.status === "generating_report";
+  const isReportFailed = detail?.status === "report_failed";
 
   if (!createInterviewOnceRef.current) {
     createInterviewOnceRef.current = createSingleFlight(
@@ -185,14 +200,49 @@ export function InterviewClient() {
     }
 
     const connection = createInterviewHub(accessToken);
+    const handleReportProgress = (payload?: unknown) => {
+      if (!payload || typeof payload !== "object") {
+        return;
+      }
+
+      const candidate = payload as {
+        progress?: number;
+        stage?: string;
+        estimatedTime?: number;
+      };
+
+      if (typeof candidate.progress !== "number") {
+        return;
+      }
+
+      setReportProgress({
+        progress: candidate.progress,
+        stage: candidate.stage ?? "ended",
+        estimatedTime:
+          typeof candidate.estimatedTime === "number" ? candidate.estimatedTime : 0,
+      });
+    };
+    const handleErrorOccurred = (payload?: unknown) => {
+      if (
+        payload &&
+        typeof payload === "object" &&
+        "message" in payload &&
+        typeof payload.message === "string"
+      ) {
+        setError(payload.message);
+      }
+      void refreshInterview(interviewId);
+    };
+
     connection.on("ReceiveQuestion", () => void refreshInterview(interviewId));
     connection.on("ReceiveFollowUp", () => void refreshInterview(interviewId));
     connection.on("InterviewStatusChanged", () => void refreshInterview(interviewId));
     connection.on("ReportReady", () => navigateTo(`/report/${interviewId}`));
+    connection.on("ErrorOccurred", handleErrorOccurred);
     connection.on("TypingIndicator", () => undefined);
     connection.on("typingindicator", () => undefined);
-    connection.on("ReportProgress", () => undefined);
-    connection.on("reportprogress", () => undefined);
+    connection.on("ReportProgress", handleReportProgress);
+    connection.on("reportprogress", handleReportProgress);
 
     void (async () => {
       try {
@@ -239,6 +289,15 @@ export function InterviewClient() {
       setDetail(response);
       setSelectedPosition(response.positionCode);
       setInterviewMode(response.interviewMode);
+      setReportProgress((current) =>
+        response.status === "generating_report"
+          ? current ?? {
+              progress: 10,
+              stage: "ended",
+              estimatedTime: 30,
+            }
+          : null,
+      );
       setError(null);
     } catch (requestError) {
       setError(getRequestErrorMessage(requestError, "面试详情加载失败"));
@@ -272,9 +331,18 @@ export function InterviewClient() {
     }
 
     setSubmitting(true);
+    setError(null);
     try {
       const response = await finishInterview(interviewId);
-      navigateTo(`/report/${response.interviewId}`);
+      setReportProgress({
+        progress: 10,
+        stage: "ended",
+        estimatedTime: response.estimatedTime,
+      });
+      await refreshInterview(interviewId);
+      if (response.status === "completed" && response.reportId) {
+        navigateTo(`/report/${response.interviewId}`);
+      }
     } catch (requestError) {
       setError(getRequestErrorMessage(requestError, "结束面试失败"));
     } finally {
@@ -469,7 +537,7 @@ export function InterviewClient() {
           </div>
           {interviewId ? (
             <Button
-              disabled={submitting}
+              disabled={submitting || isReportGenerating}
               onClick={handleFinishInterview}
               type="button"
               variant="secondary"
@@ -490,6 +558,28 @@ export function InterviewClient() {
       </Card>
       <div className="space-y-6">
         {error ? <ErrorState description={error} /> : null}
+        {isReportGenerating && reportProgress ? (
+          <Card className="space-y-4">
+            <span className="section-label">报告生成中</span>
+            <div className="space-y-2">
+              <p className="text-lg font-semibold">
+                {REPORT_STAGE_LABELS[reportProgress.stage] ?? "正在生成报告"}
+              </p>
+              <p className="text-caption">
+                进度 {reportProgress.progress}% · 预计剩余 {reportProgress.estimatedTime} 秒
+              </p>
+            </div>
+          </Card>
+        ) : null}
+        {isReportFailed ? (
+          <Card className="space-y-4">
+            <span className="section-label">报告生成失败</span>
+            <p className="text-caption">上一次生成未成功，你可以重新发起生成。</p>
+            <Button disabled={submitting} onClick={handleFinishInterview} type="button">
+              {submitting ? "正在重新生成..." : "重新生成报告"}
+            </Button>
+          </Card>
+        ) : null}
         {!interviewId ? (
           <EmptyState
             description="请先从岗位列表发起面试，创建成功后会直接进入正式问答页。"
@@ -512,20 +602,26 @@ export function InterviewClient() {
               </div>
               <textarea
                 className="input-shell min-h-[180px]"
+                disabled={isReportGenerating || isReportFailed}
                 onChange={(event) => setAnswerText(event.target.value)}
                 placeholder="请输入你的回答。当前版本先走文本回答链路。"
                 value={answerText}
               />
               <div className="flex flex-wrap gap-3">
                 <Button
-                  disabled={submitting || !answerText.trim()}
+                  disabled={
+                    submitting ||
+                    !answerText.trim() ||
+                    isReportGenerating ||
+                    isReportFailed
+                  }
                   onClick={handleSubmitAnswer}
                   type="button"
                 >
                   {submitting ? "提交中..." : "提交回答"}
                 </Button>
                 <Button
-                  disabled={submitting}
+                  disabled={submitting || isReportGenerating}
                   onClick={handleFinishInterview}
                   type="button"
                   variant="secondary"

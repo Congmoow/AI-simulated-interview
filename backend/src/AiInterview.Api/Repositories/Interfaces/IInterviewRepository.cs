@@ -12,6 +12,8 @@ public interface IInterviewRepository
 
     Task<Interview?> GetByIdWithDetailsAsync(Guid id, CancellationToken cancellationToken = default);
 
+    Task<List<Guid>> GetInterviewIdsPendingReportGenerationAsync(CancellationToken cancellationToken = default);
+
     Task<List<Interview>> GetUserHistoryAsync(Guid userId, string? positionCode, string? status, DateOnly? startDate, DateOnly? endDate, int page, int pageSize, CancellationToken cancellationToken = default);
 
     Task<int> CountUserHistoryAsync(Guid userId, string? positionCode, string? status, DateOnly? startDate, DateOnly? endDate, CancellationToken cancellationToken = default);

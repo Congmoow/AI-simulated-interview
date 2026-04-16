@@ -110,7 +110,7 @@ export interface SubmitAnswerPayload {
 export interface FinishInterviewPayload {
   interviewId: string;
   status: string;
-  reportId: string;
+  reportId?: string | null;
   estimatedTime: number;
 }
 

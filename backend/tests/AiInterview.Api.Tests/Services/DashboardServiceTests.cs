@@ -65,6 +65,11 @@ sealed class InMemoryDashboardInterviewRepository : IInterviewRepository
         return Task.FromResult(Interviews.FirstOrDefault(x => x.Id == id));
     }
 
+    public Task<List<Guid>> GetInterviewIdsPendingReportGenerationAsync(CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new List<Guid>());
+    }
+
     public Task<List<Interview>> GetUserHistoryAsync(
         Guid userId,
         string? positionCode,

@@ -3,18 +3,20 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.providers.mock_provider import MockProvider
 from app.workers.tasks import _send_callback_with_retry
 
 
 def test_process_document_returns_chunks() -> None:
-    client = TestClient(app)
-    payload = {
-        "documentId": "550e8400-e29b-41d4-a716-446655440000",
-        "fileName": "test.pdf",
-        "fileType": "pdf",
-        "title": "Java 并发编程知识",
-    }
-    response = client.post("/document/process", json=payload)
+    with patch("app.api.routes.document.get_provider", return_value=MockProvider()):
+        client = TestClient(app)
+        payload = {
+            "documentId": "550e8400-e29b-41d4-a716-446655440000",
+            "fileName": "test.pdf",
+            "fileType": "pdf",
+            "title": "Java 并发编程知识",
+        }
+        response = client.post("/document/process", json=payload)
 
     assert response.status_code == 200
     data = response.json()
@@ -24,14 +26,15 @@ def test_process_document_returns_chunks() -> None:
 
 
 def test_process_document_chunk_structure() -> None:
-    client = TestClient(app)
-    payload = {
-        "documentId": "550e8400-e29b-41d4-a716-446655440001",
-        "fileName": "sample.txt",
-        "fileType": "txt",
-        "title": "测试文档标题",
-    }
-    response = client.post("/document/process", json=payload)
+    with patch("app.api.routes.document.get_provider", return_value=MockProvider()):
+        client = TestClient(app)
+        payload = {
+            "documentId": "550e8400-e29b-41d4-a716-446655440001",
+            "fileName": "sample.txt",
+            "fileType": "txt",
+            "title": "测试文档标题",
+        }
+        response = client.post("/document/process", json=payload)
 
     assert response.status_code == 200
     chunks = response.json()["chunks"]

@@ -30,6 +30,11 @@ const STATUS_META: Record<
     className:
       "border-[rgba(245,158,11,0.18)] bg-[rgba(245,158,11,0.08)] text-[var(--token-color-warning)]",
   },
+  report_failed: {
+    label: "生成失败",
+    className:
+      "border-[rgba(239,68,68,0.18)] bg-[rgba(239,68,68,0.08)] text-[var(--token-color-danger)]",
+  },
   in_progress: {
     label: "进行中",
     className:

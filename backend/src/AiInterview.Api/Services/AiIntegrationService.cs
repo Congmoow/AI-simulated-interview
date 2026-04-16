@@ -24,11 +24,6 @@ public class AiIntegrationService(HttpClient httpClient, IOptions<AiServiceOptio
         return await PostAsync<AnswerAiRequest, AnswerAiResponse>("/interview/answer", request, cancellationToken);
     }
 
-    public async Task<FinishInterviewAiResponse> FinishInterviewAsync(FinishInterviewAiRequest request, CancellationToken cancellationToken = default)
-    {
-        return await PostAsync<FinishInterviewAiRequest, FinishInterviewAiResponse>("/interview/finish", request, cancellationToken);
-    }
-
     public async Task<ScoreAiResponse> ScoreAsync(ScoreAiRequest request, CancellationToken cancellationToken = default)
     {
         return await PostAsync<ScoreAiRequest, ScoreAiResponse>("/evaluation/score", request, cancellationToken);

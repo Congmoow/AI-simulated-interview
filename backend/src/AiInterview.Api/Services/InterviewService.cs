@@ -8,8 +8,6 @@ using AiInterview.Api.Models.Entities;
 using AiInterview.Api.Repositories.Interfaces;
 using AiInterview.Api.Services.Interfaces;
 using Microsoft.AspNetCore.SignalR;
-using System.Diagnostics;
-using System.Text.Json;
 
 namespace AiInterview.Api.Services;
 
@@ -19,23 +17,14 @@ public class InterviewService(
     IReportRepository reportRepository,
     IAiIntegrationService aiIntegrationService,
     IAiSettingsService aiSettingsService,
+    IInterviewReportGenerationQueue reportGenerationQueue,
     IHubContext<InterviewHub, IInterviewClient> hubContext,
     ILogger<InterviewService> logger) : IInterviewService
 {
-    private const string DefaultReportSystemPrompt =
-        """
-        你是一个资深技术面试评估尓。限定返回格式为单一 JSON 对象，绝对不要输出任何 JSON 以外的内容。
-        JSON 必须包含以下字段：
-        - overallScore: 整体得分 0-100 的数字
-        - dimensions: 各维度评分对象，每个字段包含 score(分数) 和 detail(详细评价)
-        - strengths: 优势列表（字符串数组）
-        - weaknesses: 不足列表（字符串数组）
-        - suggestions: 具体改进建议列表（字符串数组）
-        - summary: 总结性评价（字符串）
-        """;
-
     public async Task<CreateInterviewResponse> CreateInterviewAsync(Guid userId, CreateInterviewRequest request, CancellationToken cancellationToken = default)
     {
+        _ = aiSettingsService;
+
         var position = await catalogRepository.GetPositionByCodeAsync(request.PositionCode, cancellationToken)
             ?? throw new AppException(ErrorCodes.PositionNotFound, "岗位不存在", StatusCodes.Status404NotFound);
 
@@ -145,7 +134,7 @@ public class InterviewService(
     {
         if (string.IsNullOrWhiteSpace(request.Answer))
         {
-            throw new AppException(ErrorCodes.AnswerEmpty, "回答内容为空");
+            throw new AppException(ErrorCodes.AnswerEmpty, "回答内容不能为空");
         }
 
         var interview = await GetOwnedInterviewAsync(userId, interviewId, true, cancellationToken);
@@ -159,7 +148,11 @@ public class InterviewService(
         interview.UpdatedAt = DateTimeOffset.UtcNow;
 
         var nextQuestionCandidate = interview.CurrentRound < interview.TotalRounds
-            ? await catalogRepository.GetRandomQuestionAsync(interview.PositionCode, interview.QuestionTypes, interview.Rounds.Where(x => x.QuestionId.HasValue).Select(x => x.QuestionId!.Value), cancellationToken)
+            ? await catalogRepository.GetRandomQuestionAsync(
+                interview.PositionCode,
+                interview.QuestionTypes,
+                interview.Rounds.Where(x => x.QuestionId.HasValue).Select(x => x.QuestionId!.Value),
+                cancellationToken)
             : null;
 
         await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).TypingIndicator(new { isTyping = true });
@@ -221,7 +214,7 @@ public class InterviewService(
                 AiResponse = new AiResponseDto
                 {
                     Type = "follow_up",
-                    Content = "当前问题已经完成，可以选择继续下一轮或结束面试。",
+                    Content = "当前问题已经完成，可以继续下一轮或结束面试。",
                     Suggestions = ["继续追问", "切换下一题", "主动结束"]
                 }
             };
@@ -273,14 +266,42 @@ public class InterviewService(
 
     public async Task<FinishInterviewResponse> FinishInterviewAsync(Guid userId, Guid interviewId, CancellationToken cancellationToken = default)
     {
-        var interview = await GetOwnedInterviewAsync(userId, interviewId, true, cancellationToken);
+        logger.LogInformation("finish_request_received，interviewId={InterviewId}", interviewId);
 
-        interview.Status = InterviewStatuses.Completed;
-        interview.EndedAt = DateTimeOffset.UtcNow;
-        interview.DurationSeconds = interview.StartedAt.HasValue
-            ? (int)(interview.EndedAt.Value - interview.StartedAt.Value).TotalSeconds
-            : 0;
-        interview.UpdatedAt = DateTimeOffset.UtcNow;
+        var interview = await GetOwnedInterviewAsync(userId, interviewId, true, cancellationToken);
+        if (interview.Report is not null)
+        {
+            return new FinishInterviewResponse
+            {
+                InterviewId = interview.Id,
+                Status = InterviewStatuses.Completed,
+                ReportId = interview.Report.Id,
+                EstimatedTime = 0
+            };
+        }
+
+        if (interview.Status == InterviewStatuses.GeneratingReport)
+        {
+            if (!reportGenerationQueue.IsQueued(interview.Id))
+            {
+                await reportGenerationQueue.EnqueueAsync(interview.Id, cancellationToken);
+                logger.LogInformation("report_job_enqueued，interviewId={InterviewId} repaired=true", interview.Id);
+            }
+
+            return CreateGeneratingReportResponse(interview.Id);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        if (interview.EndedAt is null)
+        {
+            interview.EndedAt = now;
+            interview.DurationSeconds = interview.StartedAt.HasValue
+                ? (int)(interview.EndedAt.Value - interview.StartedAt.Value).TotalSeconds
+                : 0;
+        }
+
+        interview.Status = InterviewStatuses.GeneratingReport;
+        interview.UpdatedAt = now;
 
         await interviewRepository.SaveChangesAsync(cancellationToken);
         await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).InterviewStatusChanged(new
@@ -290,155 +311,15 @@ public class InterviewService(
         });
         await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).ReportProgress(new
         {
-            progress = 30,
+            progress = 10,
+            stage = "ended",
             estimatedTime = 30
         });
 
-        await aiIntegrationService.FinishInterviewAsync(new FinishInterviewAiRequest
-        {
-            InterviewId = interview.Id,
-            PositionCode = interview.PositionCode,
-            TotalRounds = interview.TotalRounds
-        }, cancellationToken);
+        await reportGenerationQueue.EnqueueAsync(interview.Id, cancellationToken);
+        logger.LogInformation("report_job_enqueued，interviewId={InterviewId} repaired=false", interview.Id);
 
-        var orderedRounds = interview.Rounds
-            .OrderBy(x => x.RoundNumber)
-            .Select(x => new ScoreAiRoundDto
-            {
-                RoundNumber = x.RoundNumber,
-                QuestionType = x.QuestionType,
-                QuestionTitle = x.QuestionTitle,
-                QuestionContent = x.QuestionContent,
-                Answer = x.UserAnswer,
-                FollowUps = x.AiFollowUps
-            })
-            .ToList();
-
-        var score = await aiIntegrationService.ScoreAsync(new ScoreAiRequest
-        {
-            InterviewId = interview.Id,
-            PositionCode = interview.PositionCode,
-            Rounds = orderedRounds
-        }, cancellationToken);
-
-        var report = await aiIntegrationService.GenerateReportAsync(new ReportAiRequest
-        {
-            InterviewId = interview.Id,
-            PositionCode = interview.PositionCode,
-            OverallScore = score.OverallScore,
-            DimensionScores = score.DimensionScores,
-            Rounds = orderedRounds
-        }, cancellationToken);
-
-        var scoreEntity = new InterviewScore
-        {
-            InterviewId = interview.Id,
-            OverallScore = score.OverallScore,
-            DimensionScores = ApplicationMapper.SerializeObject(score.DimensionScores),
-            DimensionDetails = ApplicationMapper.SerializeObject(score.DimensionDetails),
-            ScoreBreakdown = ApplicationMapper.SerializeObject(score.ScoreBreakdown),
-            RankPercentile = score.RankPercentile,
-            ModelVersion = score.ModelVersion
-        };
-
-        var reportEntity = new InterviewReport
-        {
-            InterviewId = interview.Id,
-            UserId = userId,
-            PositionCode = interview.PositionCode,
-            OverallScore = score.OverallScore,
-            ExecutiveSummary = report.ExecutiveSummary,
-            Strengths = report.Strengths,
-            Weaknesses = report.Weaknesses,
-            DetailedAnalysis = ApplicationMapper.SerializeObject(report.DetailedAnalysis),
-            LearningSuggestions = report.LearningSuggestions,
-            TrainingPlan = ApplicationMapper.SerializeObject(report.TrainingPlan),
-            NextInterviewFocus = report.NextInterviewFocus,
-            ModelVersion = report.ModelVersion
-        };
-
-        await reportRepository.AddOrUpdateScoreAsync(scoreEntity, cancellationToken);
-        await reportRepository.AddOrUpdateReportAsync(reportEntity, cancellationToken);
-        await reportRepository.SaveChangesAsync(cancellationToken);
-
-        var savedReport = await reportRepository.GetReportByInterviewIdAsync(interview.Id, cancellationToken) ?? reportEntity;
-
-        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).ReportProgress(new
-        {
-            progress = 100,
-            estimatedTime = 0
-        });
-        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).ReportReady(new
-        {
-            reportId = savedReport.Id
-        });
-
-        return new FinishInterviewResponse
-        {
-            InterviewId = interview.Id,
-            Status = "generating_report",
-            ReportId = savedReport.Id,
-            EstimatedTime = 30
-        };
-
-        #if false
-        var recommendedResources = await catalogRepository.GetLearningResourcesAsync(interview.PositionCode, resourceRecommendation.TargetDimensions, 10, cancellationToken);
-        var recommendationRecords = new List<RecommendationRecord>
-        {
-            new()
-            {
-                UserId = userId,
-                InterviewId = interview.Id,
-                ReportId = reportEntity.Id,
-                Type = "resource",
-                RecommendedResources = recommendedResources.Select(x => x.Id).ToArray(),
-                TargetDimensions = resourceRecommendation.TargetDimensions,
-                MatchScores = ApplicationMapper.SerializeObject(resourceRecommendation.MatchScores),
-                Reason = resourceRecommendation.Reason
-            },
-            new()
-            {
-                UserId = userId,
-                InterviewId = interview.Id,
-                ReportId = reportEntity.Id,
-                Type = "training_plan",
-                TrainingPlan = ApplicationMapper.SerializeObject(new
-                {
-                    weeks = trainingPlan.Weeks,
-                    dailyCommitment = trainingPlan.DailyCommitment,
-                    goals = trainingPlan.Goals,
-                    schedule = trainingPlan.Schedule,
-                    milestones = trainingPlan.Milestones
-                }),
-                TargetDimensions = resourceRecommendation.TargetDimensions,
-                MatchScores = ApplicationMapper.SerializeObject(resourceRecommendation.MatchScores),
-                Reason = "基于本次面试弱项生成的训练计划"
-            }
-        };
-
-        await reportRepository.AddRecommendationRecordsAsync(recommendationRecords, cancellationToken);
-        await reportRepository.SaveChangesAsync(cancellationToken);
-
-        var savedReport = await reportRepository.GetReportByInterviewIdAsync(interview.Id, cancellationToken) ?? reportEntity;
-
-        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).ReportProgress(new
-        {
-            progress = 100,
-            estimatedTime = 0
-        });
-        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).ReportReady(new
-        {
-            reportId = savedReport.Id
-        });
-
-        return new FinishInterviewResponse
-        {
-            InterviewId = interview.Id,
-            Status = "generating_report",
-            ReportId = savedReport.Id,
-            EstimatedTime = 30
-        };
-        #endif
+        return CreateGeneratingReportResponse(interview.Id);
     }
 
     public async Task<PagedResult<InterviewHistoryItemDto>> GetHistoryAsync(Guid userId, string? positionCode, string? status, DateOnly? startDate, DateOnly? endDate, int page, int pageSize, CancellationToken cancellationToken = default)
@@ -482,7 +363,9 @@ public class InterviewService(
                         QuestionId = x.QuestionId ?? Guid.Empty,
                         Title = x.QuestionTitle,
                         Type = x.QuestionType,
-                        Difficulty = scoreBreakdown.TryGetValue($"round{x.RoundNumber}Difficulty", out var difficulty) ? difficulty?.ToString() ?? "medium" : "medium"
+                        Difficulty = scoreBreakdown.TryGetValue($"round{x.RoundNumber}Difficulty", out var difficulty)
+                            ? difficulty?.ToString() ?? "medium"
+                            : "medium"
                     },
                     UserAnswer = x.UserAnswer,
                     AiFollowUps = x.AiFollowUps,
@@ -519,181 +402,14 @@ public class InterviewService(
         };
     }
 
-    private async Task<ReportAiResponse> GenerateReportWithFallbackAsync(
-        Interview interview,
-        ScoreAiResponse score,
-        CancellationToken cancellationToken)
+    private static FinishInterviewResponse CreateGeneratingReportResponse(Guid interviewId)
     {
-        var provider = await aiSettingsService.BuildProviderAsync(cancellationToken);
-        if (provider is null)
+        return new FinishInterviewResponse
         {
-            logger.LogInformation("真实 LLM 未配置或未启用，降级到 Python ai-service 生成报告");
-            return await FallbackToAiServiceReportAsync(interview, score, cancellationToken);
-        }
-
-        var settings = await aiSettingsService.GetSettingsAsync(cancellationToken);
-        var systemPrompt = !string.IsNullOrWhiteSpace(settings?.SystemPrompt)
-            ? settings.SystemPrompt
-            : DefaultReportSystemPrompt;
-
-        var userPrompt = BuildReportPrompt(interview, score);
-        var sw = Stopwatch.StartNew();
-        string rawContent;
-        try
-        {
-            rawContent = await provider.ChatCompleteAsync(new AiChatRequest
-            {
-                SystemPrompt = systemPrompt,
-                UserPrompt = userPrompt
-            }, cancellationToken);
-            sw.Stop();
-            logger.LogInformation("真实 LLM 报告生成完成，provider={Provider}，耗时={LatencyMs}ms",
-                "openai_compatible", sw.ElapsedMilliseconds);
-        }
-        catch (Exception ex)
-        {
-            sw.Stop();
-            logger.LogWarning("真实 LLM 调用失败，降级到 Python ai-service，异常类型={ExType}", ex.GetType().Name);
-            return await FallbackToAiServiceReportAsync(interview, score, cancellationToken);
-        }
-
-        var parsed = TryParseReportJson(rawContent);
-        if (parsed is null)
-        {
-            logger.LogWarning("真实 LLM 返回 JSON 解析失败，降级到 Python ai-service，响应片段={Snippet}",
-                rawContent.Length > 150 ? rawContent[..150] : rawContent);
-            return await FallbackToAiServiceReportAsync(interview, score, cancellationToken);
-        }
-
-        if (!ValidateReportJson(parsed))
-        {
-            logger.LogWarning("真实 LLM 返回 JSON 缺少必要字段，降级到 Python ai-service");
-            return await FallbackToAiServiceReportAsync(interview, score, cancellationToken);
-        }
-
-        return MapToReportAiResponse(parsed);
-    }
-
-    private async Task<ReportAiResponse> FallbackToAiServiceReportAsync(
-        Interview interview,
-        ScoreAiResponse score,
-        CancellationToken cancellationToken)
-    {
-        return await aiIntegrationService.GenerateReportAsync(new ReportAiRequest
-        {
-            InterviewId = interview.Id,
-            PositionCode = interview.PositionCode,
-            OverallScore = score.OverallScore,
-            DimensionScores = score.DimensionScores
-        }, cancellationToken);
-    }
-
-    private static string BuildReportPrompt(Interview interview, ScoreAiResponse score)
-    {
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"面试岗位：{interview.PositionCode}，总轮次：{interview.TotalRounds}");
-        sb.AppendLine($"评分系统得分：{score.OverallScore:F1}");
-
-        if (score.DimensionScores?.Count > 0)
-        {
-            sb.AppendLine("各维度得分：");
-            foreach (var (dim, val) in score.DimensionScores)
-            {
-                sb.AppendLine($"  {dim}: {val.Score:F1}");
-            }
-        }
-
-        sb.AppendLine("问答记录：");
-        var rounds = interview.Rounds?.OrderBy(x => x.RoundNumber).ToList() ?? [];
-        foreach (var round in rounds)
-        {
-            sb.AppendLine($"第 {round.RoundNumber} 轮 - [{round.QuestionType}] {round.QuestionTitle}");
-            if (!string.IsNullOrWhiteSpace(round.UserAnswer))
-            {
-                var answer = round.UserAnswer.Length > 500 ? round.UserAnswer[..500] + "..." : round.UserAnswer;
-                sb.AppendLine($"考生回答：{answer}");
-            }
-        }
-
-        sb.AppendLine("请基于以上信息生成评估报告，仅返回 JSON。");
-        return sb.ToString();
-    }
-
-    private static LlmReportJson? TryParseReportJson(string raw)
-    {
-        static LlmReportJson? TryDeserialize(string json)
-        {
-            try
-            {
-                return JsonSerializer.Deserialize<LlmReportJson>(json,
-                    new JsonSerializerOptions(JsonSerializerDefaults.Web));
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        var result = TryDeserialize(raw);
-        if (result is not null) return result;
-
-        var trimmed = raw.Trim();
-        if (trimmed.StartsWith("```", StringComparison.Ordinal))
-        {
-            var firstNewLine = trimmed.IndexOf('\n');
-            if (firstNewLine >= 0)
-            {
-                trimmed = trimmed[(firstNewLine + 1)..].TrimStart();
-            }
-
-            if (trimmed.EndsWith("```", StringComparison.Ordinal))
-            {
-                trimmed = trimmed[..^3].TrimEnd();
-            }
-        }
-
-        var jsonStart = trimmed.IndexOf('{');
-        var jsonEnd = trimmed.LastIndexOf('}');
-        if (jsonStart >= 0 && jsonEnd > jsonStart)
-        {
-            trimmed = trimmed[jsonStart..(jsonEnd + 1)];
-        }
-
-        return TryDeserialize(trimmed);
-    }
-
-    private static bool ValidateReportJson(LlmReportJson json)
-    {
-        return json.Strengths is { Length: > 0 }
-            && json.Weaknesses is { Length: > 0 }
-            && json.Suggestions is { Length: > 0 }
-            && !string.IsNullOrWhiteSpace(json.Summary);
-    }
-
-    private static ReportAiResponse MapToReportAiResponse(LlmReportJson json)
-    {
-        return new ReportAiResponse
-        {
-            ExecutiveSummary = json.Summary ?? string.Empty,
-            Strengths = json.Strengths ?? [],
-            Weaknesses = json.Weaknesses ?? [],
-            LearningSuggestions = json.Suggestions ?? [],
-            DetailedAnalysis = json.Dimensions is not null
-                ? json.Dimensions.ToDictionary(k => k.Key, v => (object)v.Value)
-                : [],
-            TrainingPlan = [],
-            NextInterviewFocus = [],
-            ModelVersion = "llm-v1"
+            InterviewId = interviewId,
+            Status = InterviewStatuses.GeneratingReport,
+            ReportId = null,
+            EstimatedTime = 30
         };
-    }
-
-    private sealed class LlmReportJson
-    {
-        public decimal OverallScore { get; init; }
-        public Dictionary<string, JsonElement>? Dimensions { get; init; }
-        public string[]? Strengths { get; init; }
-        public string[]? Weaknesses { get; init; }
-        public string[]? Suggestions { get; init; }
-        public string? Summary { get; init; }
     }
 }

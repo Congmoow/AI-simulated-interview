@@ -1,4 +1,5 @@
 using AiInterview.Api.Data;
+using AiInterview.Api.Constants;
 using AiInterview.Api.Models.Entities;
 using AiInterview.Api.Repositories.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -34,6 +35,15 @@ public class InterviewRepository(ApplicationDbContext dbContext) : IInterviewRep
             .Include(x => x.Report)
             .Include(x => x.Rounds.OrderBy(r => r.RoundNumber))
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+    }
+
+    public Task<List<Guid>> GetInterviewIdsPendingReportGenerationAsync(CancellationToken cancellationToken = default)
+    {
+        return dbContext.Interviews
+            .Where(x => x.Status == InterviewStatuses.GeneratingReport)
+            .Where(x => !dbContext.InterviewReports.Any(report => report.InterviewId == x.Id))
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
     }
 
     public Task<List<Interview>> GetUserHistoryAsync(Guid userId, string? positionCode, string? status, DateOnly? startDate, DateOnly? endDate, int page, int pageSize, CancellationToken cancellationToken = default)

@@ -4,8 +4,6 @@ from app.core.security import verify_internal_request
 from app.schemas.interview import (
     AnswerInterviewRequest,
     AnswerInterviewResponse,
-    FinishInterviewRequest,
-    FinishInterviewResponse,
     StartInterviewRequest,
     StartInterviewResponse,
 )
@@ -25,9 +23,3 @@ async def start_interview(request: StartInterviewRequest):
 async def answer_interview(request: AnswerInterviewRequest):
     service = InterviewService(get_provider())
     return service.answer(request)
-
-
-@router.post("/finish", response_model=FinishInterviewResponse)
-async def finish_interview(request: FinishInterviewRequest):
-    service = InterviewService(get_provider())
-    return service.finish(request)

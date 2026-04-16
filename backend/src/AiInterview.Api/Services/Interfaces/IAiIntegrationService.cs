@@ -8,8 +8,6 @@ public interface IAiIntegrationService
 
     Task<AnswerAiResponse> AnswerAsync(AnswerAiRequest request, CancellationToken cancellationToken = default);
 
-    Task<FinishInterviewAiResponse> FinishInterviewAsync(FinishInterviewAiRequest request, CancellationToken cancellationToken = default);
-
     Task<ScoreAiResponse> ScoreAsync(ScoreAiRequest request, CancellationToken cancellationToken = default);
 
     Task<ReportAiResponse> GenerateReportAsync(ReportAiRequest request, CancellationToken cancellationToken = default);
@@ -74,18 +72,6 @@ public class CandidateQuestionDto
     public string Difficulty { get; set; } = string.Empty;
 }
 
-public class FinishInterviewAiRequest
-{
-    public Guid InterviewId { get; set; }
-    public string PositionCode { get; set; } = string.Empty;
-    public int TotalRounds { get; set; }
-}
-
-public class FinishInterviewAiResponse
-{
-    public string Summary { get; set; } = string.Empty;
-}
-
 public class ScoreAiRequest
 {
     public Guid InterviewId { get; set; }
@@ -119,6 +105,7 @@ public class ReportAiRequest
     public string PositionCode { get; set; } = string.Empty;
     public decimal OverallScore { get; set; }
     public Dictionary<string, DimensionScoreDto> DimensionScores { get; set; } = [];
+    public Dictionary<string, string> DimensionDetails { get; set; } = [];
     public List<ScoreAiRoundDto> Rounds { get; set; } = [];
 }
 

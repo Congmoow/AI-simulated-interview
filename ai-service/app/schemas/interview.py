@@ -50,16 +50,6 @@ class AnswerInterviewResponse(BaseModel):
     next_question: CandidateQuestion | None = Field(default=None, alias="nextQuestion")
 
 
-class FinishInterviewRequest(BaseModel):
-    interview_id: UUID = Field(alias="interviewId")
-    position_code: str = Field(alias="positionCode")
-    total_rounds: int = Field(alias="totalRounds")
-
-
-class FinishInterviewResponse(BaseModel):
-    summary: str
-
-
 class ScoreRound(BaseModel):
     round_number: int = Field(alias="roundNumber")
     question_type: str = Field(alias="questionType")

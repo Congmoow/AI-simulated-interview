@@ -1,15 +1,15 @@
 from typing import Protocol
 
+from app.schemas.document import ProcessDocumentRequest, ProcessDocumentResponse
 from app.schemas.interview import (
     AnswerInterviewRequest,
     AnswerInterviewResponse,
-    FinishInterviewRequest,
-    FinishInterviewResponse,
     ScoreInterviewRequest,
     ScoreInterviewResponse,
     StartInterviewRequest,
     StartInterviewResponse,
 )
+from app.schemas.rag import RagSearchRequest, RagSearchResponse
 from app.schemas.recommendation import (
     ResourceRecommendationRequest,
     ResourceRecommendationResponse,
@@ -17,8 +17,6 @@ from app.schemas.recommendation import (
     TrainingPlanResponse,
 )
 from app.schemas.report import GenerateReportRequest, GenerateReportResponse
-from app.schemas.rag import RagSearchRequest, RagSearchResponse
-from app.schemas.document import ProcessDocumentRequest, ProcessDocumentResponse
 
 
 class ModelProvider(Protocol):
@@ -26,9 +24,6 @@ class ModelProvider(Protocol):
         ...
 
     def answer_interview(self, request: AnswerInterviewRequest) -> AnswerInterviewResponse:
-        ...
-
-    def finish_interview(self, request: FinishInterviewRequest) -> FinishInterviewResponse:
         ...
 
     def score_interview(self, request: ScoreInterviewRequest) -> ScoreInterviewResponse:

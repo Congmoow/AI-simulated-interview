@@ -84,7 +84,7 @@ public class FinishInterviewResponse
 {
     public Guid InterviewId { get; set; }
     public string Status { get; set; } = "generating_report";
-    public Guid ReportId { get; set; }
+    public Guid? ReportId { get; set; }
     public int EstimatedTime { get; set; }
 }
 

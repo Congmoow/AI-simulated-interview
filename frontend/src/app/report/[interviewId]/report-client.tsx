@@ -1,17 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { getInterview, finishInterview } from "@/services/interview-service";
 import { getReport, getResources, getTrainingPlan } from "@/services/report-service";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ErrorState, LoadingState } from "@/components/ui/state-panel";
 import { useAuthStore } from "@/stores/auth-store";
 import { useAuthModalStore } from "@/stores/auth-modal-store";
 import { RequireLoginState } from "@/components/auth/require-login-state";
-import type { ReportDetail, ResourceRecommendation, TrainingPlan } from "@/types/api";
+import { getRequestErrorMessage } from "@/utils/request-error";
+import type {
+  InterviewCurrentDetail,
+  ReportDetail,
+  ResourceRecommendation,
+  TrainingPlan,
+} from "@/types/api";
 
 export function ReportClient({ interviewId }: { interviewId: string }) {
-  const router = useRouter();
   const accessToken = useAuthStore((state) => state.accessToken);
   const hydrated = useAuthStore((state) => state.hydrated);
   const openLogin = useAuthModalStore((state) => state.openLogin);
@@ -19,7 +25,54 @@ export function ReportClient({ interviewId }: { interviewId: string }) {
   const [resources, setResources] = useState<ResourceRecommendation[]>([]);
   const [trainingPlan, setTrainingPlan] = useState<TrainingPlan | null>(null);
   const [loading, setLoading] = useState(true);
+  const [retrying, setRetrying] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [interviewDetail, setInterviewDetail] = useState<InterviewCurrentDetail | null>(null);
+
+  const isGenerating = interviewDetail?.status === "generating_report";
+  const isFailed = interviewDetail?.status === "report_failed";
+
+  async function loadReportWithFallback() {
+    try {
+      const reportResponse = await getReport(interviewId);
+      const [resourceResponse, trainingResponse] = await Promise.all([
+        getResources({ limit: 4 }),
+        getTrainingPlan({ interviewId }),
+      ]);
+      setReport(reportResponse);
+      setResources(resourceResponse);
+      setTrainingPlan(trainingResponse);
+      setInterviewDetail((current) =>
+        current
+          ? {
+              ...current,
+              status: "completed",
+            }
+          : current,
+      );
+      setError(null);
+      return true;
+    } catch (requestError) {
+      try {
+        const interviewResponse = await getInterview(interviewId);
+        setInterviewDetail(interviewResponse);
+        setReport(null);
+        if (interviewResponse.status === "generating_report") {
+          setError(null);
+          return false;
+        }
+        if (interviewResponse.status === "report_failed") {
+          setError("报告生成失败，请重试。");
+          return false;
+        }
+      } catch {
+        // ignore and fall back to original report error
+      }
+
+      setError(getRequestErrorMessage(requestError, "报告加载失败"));
+      return false;
+    }
+  }
 
   useEffect(() => {
     if (!hydrated) {
@@ -32,25 +85,56 @@ export function ReportClient({ interviewId }: { interviewId: string }) {
     }
 
     void (async () => {
-      try {
-        const reportResponse = await getReport(interviewId);
-        const [resourceResponse, trainingResponse] = await Promise.all([
-          getResources({ limit: 4 }),
-          getTrainingPlan({ interviewId }),
-        ]);
-        setReport(reportResponse);
-        setResources(resourceResponse);
-        setTrainingPlan(trainingResponse);
-      } catch (requestError) {
-        setError(requestError instanceof Error ? requestError.message : "报告加载失败");
-      } finally {
-        setLoading(false);
-      }
+      setLoading(true);
+      await loadReportWithFallback();
+      setLoading(false);
     })();
-  }, [accessToken, hydrated, interviewId, openLogin, router]);
+  }, [accessToken, hydrated, interviewId, openLogin]);
+
+  useEffect(() => {
+    if (!accessToken || !hydrated || !isGenerating) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void (async () => {
+        const ready = await loadReportWithFallback();
+        if (ready) {
+          window.clearInterval(timer);
+        }
+      })();
+    }, 2000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [accessToken, hydrated, interviewId, isGenerating]);
+
+  async function handleRetry() {
+    setRetrying(true);
+    try {
+      const response = await finishInterview(interviewId);
+      setInterviewDetail((current) =>
+        current
+          ? {
+              ...current,
+              status: response.status,
+            }
+          : current,
+      );
+      setError(null);
+      if (response.status === "completed") {
+        await loadReportWithFallback();
+      }
+    } catch (requestError) {
+      setError(getRequestErrorMessage(requestError, "重新生成报告失败"));
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   if (!hydrated) {
-    return <LoadingState label="正在生成并加载报告..." />;
+    return <LoadingState label="正在加载报告..." />;
   }
 
   if (!accessToken) {
@@ -59,6 +143,29 @@ export function ReportClient({ interviewId }: { interviewId: string }) {
 
   if (loading) {
     return <LoadingState label="正在生成并加载报告..." />;
+  }
+
+  if (isGenerating && !report) {
+    return (
+      <Card className="space-y-4">
+        <span className="section-label">报告生成中</span>
+        <p className="text-lg font-semibold">报告正在后台生成，请稍候...</p>
+        <p className="text-caption">
+          当前状态：{interviewDetail?.status ?? "generating_report"}
+        </p>
+      </Card>
+    );
+  }
+
+  if (isFailed && !report) {
+    return (
+      <div className="space-y-4">
+        <ErrorState description={error ?? "报告生成失败，请重试。"} />
+        <Button disabled={retrying} onClick={handleRetry} type="button">
+          {retrying ? "正在重新生成..." : "重新生成报告"}
+        </Button>
+      </div>
+    );
   }
 
   if (error || !report) {
@@ -74,7 +181,9 @@ export function ReportClient({ interviewId }: { interviewId: string }) {
             {report.overallScore.toFixed(0)}
           </p>
           <p className="text-caption">岗位：{report.positionName}</p>
-          <p className="text-caption">生成时间：{new Date(report.generatedAt).toLocaleString("zh-CN")}</p>
+          <p className="text-caption">
+            生成时间：{new Date(report.generatedAt).toLocaleString("zh-CN")}
+          </p>
         </Card>
         <Card className="space-y-5">
           <span className="section-label">能力维度</span>
