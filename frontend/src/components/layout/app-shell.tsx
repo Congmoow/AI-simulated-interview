@@ -31,12 +31,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen p-4">
-      <div className="mx-auto flex w-full max-w-[1440px] min-h-[calc(100vh-2rem)] gap-4">
+    <div
+      className={cn(
+        "p-4",
+        isInterviewPage ? "h-dvh overflow-hidden" : "min-h-screen",
+      )}
+    >
+      <div
+        className={cn(
+          "mx-auto flex w-full max-w-[1440px] gap-4",
+          isInterviewPage ? "h-full" : "min-h-[calc(100vh-2rem)]",
+        )}
+      >
         <div className="hidden lg:flex">
           <SideNav />
         </div>
-        <div className="flex min-w-0 flex-1 flex-col gap-6">
+        <div
+          className={cn(
+            "flex min-w-0 flex-1 flex-col gap-6",
+            isInterviewPage && "min-h-0 overflow-hidden",
+          )}
+        >
           <div className="flex items-center gap-2 px-1 pt-1 text-[length:var(--token-font-size-sm)]">
             <span className="text-[var(--token-color-text-tertiary)]">Simulate OS</span>
             <span className="text-[var(--token-color-text-tertiary)]">/</span>
@@ -46,7 +61,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <main
             className={cn(
-              "page-enter min-w-0 flex-1 rounded-3xl border border-[var(--token-color-border-default)] bg-[var(--token-color-bg-surface)] shadow-[var(--token-shadow-modal)] p-6",
+              "page-enter min-w-0 flex flex-1 min-h-0 flex-col rounded-3xl border border-[var(--token-color-border-default)] bg-[var(--token-color-bg-surface)] shadow-[var(--token-shadow-modal)] p-6",
               isInterviewPage && "overflow-hidden p-0",
             )}
           >
