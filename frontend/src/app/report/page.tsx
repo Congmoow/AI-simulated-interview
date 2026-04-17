@@ -35,6 +35,8 @@ const STATUS_META: Record<string, { label: string; className: string }> = {
   },
 };
 
+const REPORT_LIST_STATUS_FILTER = "completed,generating_report,report_failed";
+
 function formatDateTime(value?: string | null) {
   if (!value) {
     return "时间待同步";
@@ -77,7 +79,11 @@ export default function ReportIndexPage() {
 
     void (async () => {
       try {
-        const historyResponse = await getInterviewHistory({ page: 1, pageSize: 10 });
+        const historyResponse = await getInterviewHistory({
+          page: 1,
+          pageSize: 10,
+          status: REPORT_LIST_STATUS_FILTER,
+        });
         setHistory(historyResponse.items);
       } catch (requestError) {
         setError(requestError instanceof Error ? requestError.message : "历史面试加载失败");

@@ -10,7 +10,7 @@ const PAGE_LABELS: Record<string, string> = {
   "/dashboard": "个人画像",
   "/interview": "模拟面试",
   "/report": "报告中心",
-  "/history": "历史趋势",
+  "/resources": "学习资源",
   "/admin": "管理后台",
 };
 
@@ -18,6 +18,7 @@ function getPageLabel(pathname: string): string {
   const match = Object.entries(PAGE_LABELS).find(
     ([key]) => pathname === key || (key !== "/dashboard" && pathname.startsWith(key)),
   );
+
   return match?.[1] ?? "首页";
 }
 

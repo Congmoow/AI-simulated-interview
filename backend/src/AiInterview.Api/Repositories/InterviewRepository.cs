@@ -104,7 +104,19 @@ public class InterviewRepository(ApplicationDbContext dbContext) : IInterviewRep
 
         if (!string.IsNullOrWhiteSpace(status))
         {
-            query = query.Where(x => x.Status == status);
+            var statuses = status
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+
+            if (statuses.Length == 1)
+            {
+                query = query.Where(x => x.Status == statuses[0]);
+            }
+            else if (statuses.Length > 1)
+            {
+                query = query.Where(x => statuses.Contains(x.Status));
+            }
         }
 
         if (startDate.HasValue)
