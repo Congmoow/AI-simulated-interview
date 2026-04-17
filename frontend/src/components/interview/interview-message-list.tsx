@@ -37,10 +37,10 @@ export function InterviewMessageList({
   return (
     <div
       aria-live="polite"
-      className="min-h-0 flex-1 overflow-y-auto rounded-[28px] bg-[rgba(241,245,249,0.9)] px-3"
+      className="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-[24px] bg-[rgba(241,245,249,0.72)] px-4 scroll-smooth"
       ref={containerRef}
     >
-      <div className="mx-auto flex w-full max-w-[920px] flex-col gap-4 pb-8 pt-4">
+      <div className="mx-auto flex w-full max-w-[920px] flex-col gap-3 pb-6 pt-4">
         {messages.map((message) => (
           <InterviewMessageItem
             key={message.id}

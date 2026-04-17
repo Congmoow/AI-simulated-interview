@@ -35,8 +35,8 @@ export function InterviewComposer({
   onKeyDown,
 }: InterviewComposerProps) {
   return (
-    <div className="sticky bottom-0 z-20 -mb-10 bg-[rgba(255,255,255,0.96)] px-1 pb-0 pt-4 backdrop-blur">
-      <div className="mx-auto w-full max-w-[720px] space-y-1">
+    <div className="shrink-0 border-t border-[rgba(15,23,42,0.08)] bg-[rgba(255,255,255,0.96)] px-3 pb-3 pt-3 backdrop-blur">
+      <div className="mx-auto w-full max-w-[780px] space-y-1">
         {draftLabel || (canRestoreDraft && onRestoreDraft) || statusText || hintText ? (
           <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-[12px] text-[var(--token-color-text-secondary)]">
             <div className="flex flex-wrap items-center gap-2">
@@ -60,9 +60,9 @@ export function InterviewComposer({
           </div>
         ) : null}
 
-        <div className="surface-card relative overflow-hidden rounded-[30px] border-[rgba(15,23,42,0.08)] !bg-white p-0.5">
+        <div className="surface-card relative overflow-hidden rounded-[24px] border-[rgba(15,23,42,0.08)] !bg-white p-0.5">
           <textarea
-            className="input-shell min-h-[36px] resize-none !rounded-[24px] !border-transparent !bg-white !pb-10 !pr-[4.5rem] !pt-2 !shadow-none disabled:cursor-not-allowed disabled:opacity-80"
+            className="input-shell min-h-[72px] resize-none !rounded-[20px] !border-transparent !bg-white !pb-12 !pr-[4.5rem] !pt-3 !shadow-none disabled:cursor-not-allowed disabled:opacity-80"
             disabled={disabled}
             onChange={(event) => onChange(event.target.value)}
             onKeyDown={onKeyDown}

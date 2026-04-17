@@ -27,6 +27,7 @@ const DOT_CLASS_NAMES: Record<InterviewSystemTone, string> = {
 interface InterviewSystemNoticeProps {
   body: string;
   tone?: InterviewSystemTone;
+  displayStyle?: "card" | "plain";
   actionLabel?: string;
   actionKey?: InterviewSystemAction;
   onAction?: (action: InterviewSystemAction) => void;
@@ -35,10 +36,21 @@ interface InterviewSystemNoticeProps {
 export function InterviewSystemNotice({
   body,
   tone = "default",
+  displayStyle = "card",
   actionLabel,
   actionKey,
   onAction,
 }: InterviewSystemNoticeProps) {
+  if (displayStyle === "plain") {
+    return (
+      <div className="flex justify-center py-2">
+        <p className="text-center text-[13px] leading-6 text-[var(--token-color-text-tertiary)]">
+          {body}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex justify-center">
       <div

@@ -18,8 +18,16 @@ import { RequireLoginState } from "@/components/auth/require-login-state";
 import { useRequireAuth } from "@/hooks/use-require-auth";
 import { useAuthStore } from "@/stores/auth-store";
 import { useAuthModalStore } from "@/stores/auth-modal-store";
-import { buildCreateInterviewPayload, createSingleFlight, getInterviewEntryMode, getInterviewTargetUrl } from "@/features/interview/direct-start";
-import { buildInterviewTimelineMessages, hasPersistedPendingAnswer } from "@/features/interview/message-flow";
+import {
+  buildCreateInterviewPayload,
+  createSingleFlight,
+  getInterviewEntryMode,
+  getInterviewTargetUrl,
+} from "@/features/interview/direct-start";
+import {
+  buildInterviewTimelineMessages,
+  hasPersistedPendingAnswer,
+} from "@/features/interview/message-flow";
 import { getTagIconUrl } from "@/utils/icon-utils";
 import { getRequestErrorMessage } from "@/utils/request-error";
 import { writeStoredAuth } from "@/utils/storage";
@@ -41,6 +49,8 @@ const REPORT_STAGE_LABELS: Record<string, string> = {
 
 const DRAFT_STORAGE_PREFIX = "interview-draft:";
 
+type InterviewConnectionStatus = "connected" | "reconnecting" | "disconnected";
+
 type LocalPendingAnswer = {
   id: string;
   roundNumber: number;
@@ -52,36 +62,76 @@ type LocalPendingAnswer = {
 type SystemTimelineMessage = Extract<InterviewTimelineMessage, { kind: "system" }>;
 
 function formatShortTime(value: string | number | Date) {
-  return new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  return new Date(value).toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function formatElapsed(createdAt: string, now: number) {
-  const diff = Math.max(0, Math.floor((now - new Date(createdAt).getTime()) / 1000));
-  const hours = Math.floor(diff / 3600);
-  const minutes = Math.floor((diff % 3600) / 60);
-  const seconds = diff % 60;
+  const diffInSeconds = Math.max(
+    0,
+    Math.floor((now - new Date(createdAt).getTime()) / 1000),
+  );
+  const hours = Math.floor(diffInSeconds / 3600);
+  const minutes = Math.floor((diffInSeconds % 3600) / 60);
+  const seconds = diffInSeconds % 60;
+
   if (hours > 0) {
-    return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+    return `${hours.toString().padStart(2, "0")}:${minutes
+      .toString()
+      .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
   }
-  return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+
+  return `${minutes.toString().padStart(2, "0")}:${seconds
+    .toString()
+    .padStart(2, "0")}`;
 }
 
-function createSystemMessage(id: string, body: string, tone: InterviewSystemTone = "default", actionKey?: InterviewSystemAction, actionLabel?: string): SystemTimelineMessage {
-  return { id, kind: "system", body, tone, actionKey, actionLabel };
+function createSystemMessage(
+  id: string,
+  body: string,
+  options?: {
+    tone?: InterviewSystemTone;
+    displayStyle?: "card" | "plain";
+    actionKey?: InterviewSystemAction;
+    actionLabel?: string;
+  },
+): SystemTimelineMessage {
+  return {
+    id,
+    kind: "system",
+    body,
+    tone: options?.tone ?? "default",
+    displayStyle: options?.displayStyle ?? "card",
+    actionKey: options?.actionKey,
+    actionLabel: options?.actionLabel,
+  };
 }
 
-function getReportProgressMessage(progress: { progress: number; stage: string; estimatedTime: number }) {
+function getReportProgressMessage(progress: {
+  progress: number;
+  stage: string;
+  estimatedTime: number;
+}) {
   const stageLabel = REPORT_STAGE_LABELS[progress.stage] ?? REPORT_STAGE_LABELS.reporting;
   if (progress.stage === "completed") {
     return stageLabel;
   }
-  return progress.estimatedTime > 0
-    ? `${stageLabel} · ${progress.progress}% · 预计剩余 ${progress.estimatedTime} 秒`
-    : `${stageLabel} · ${progress.progress}%`;
+
+  if (progress.estimatedTime > 0) {
+    return `${stageLabel} · ${progress.progress}% · 预计剩余 ${progress.estimatedTime} 秒`;
+  }
+
+  return `${stageLabel} · ${progress.progress}%`;
 }
 
 function isUnauthorizedSignalRError(error: unknown) {
-  return error instanceof Error && (error.message.toLowerCase().includes("401") || error.message.toLowerCase().includes("unauthorized"));
+  return (
+    error instanceof Error &&
+    (error.message.toLowerCase().includes("401") ||
+      error.message.toLowerCase().includes("unauthorized"))
+  );
 }
 
 export function InterviewClientV2() {
@@ -104,8 +154,12 @@ export function InterviewClientV2() {
   const [submittingAnswer, setSubmittingAnswer] = useState(false);
   const [finishingInterview, setFinishingInterview] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [reportProgress, setReportProgress] = useState<{ progress: number; stage: string; estimatedTime: number } | null>(null);
-  const [, setConnectionStatus] = useState<"connected" | "reconnecting" | "disconnected">("disconnected");
+  const [reportProgress, setReportProgress] = useState<{
+    progress: number;
+    stage: string;
+    estimatedTime: number;
+  } | null>(null);
+  const [, setConnectionStatus] = useState<InterviewConnectionStatus>("disconnected");
   const [connectionNotices, setConnectionNotices] = useState<SystemTimelineMessage[]>([]);
   const [pendingAnswer, setPendingAnswer] = useState<LocalPendingAnswer | null>(null);
   const [reportReady, setReportReady] = useState(false);
@@ -116,9 +170,14 @@ export function InterviewClientV2() {
 
   const autoCreateAttemptRef = useRef<string | null>(null);
   const draftOwnedByEditorRef = useRef(false);
-  const createInterviewOnceRef = useRef<ReturnType<typeof createSingleFlight<[string, string], string>> | null>(null);
+  const createInterviewOnceRef = useRef<
+    ReturnType<typeof createSingleFlight<[string, string], string>> | null
+  >(null);
 
-  const entryMode = getInterviewEntryMode({ interviewId, positionCode: positionFromQuery });
+  const entryMode = getInterviewEntryMode({
+    interviewId,
+    positionCode: positionFromQuery,
+  });
   const showPositionCards = entryMode === "choose-position";
   const currentMainRoundNumber = detail?.currentRound ?? 0;
   const isReportGenerating = detail?.status === "generating_report";
@@ -132,7 +191,13 @@ export function InterviewClientV2() {
       setDetail(response);
       setInterviewMode(response.interviewMode);
       setReportReady(response.status === "completed");
-      setReportProgress(response.status === "generating_report" ? { progress: 10, stage: "ended", estimatedTime: 30 } : response.status === "completed" ? { progress: 100, stage: "completed", estimatedTime: 0 } : null);
+      setReportProgress(
+        response.status === "generating_report"
+          ? { progress: 10, stage: "ended", estimatedTime: 30 }
+          : response.status === "completed"
+            ? { progress: 100, stage: "completed", estimatedTime: 0 }
+            : null,
+      );
       setError(null);
     } catch (requestError) {
       setError(getRequestErrorMessage(requestError, "面试详情加载失败"));
@@ -140,44 +205,60 @@ export function InterviewClientV2() {
   }, []);
 
   if (!createInterviewOnceRef.current) {
-    createInterviewOnceRef.current = createSingleFlight(async (positionCode: string, mode: string) => {
-      setStartingPositionCode(positionCode);
-      try {
-        const response = await createInterview(buildCreateInterviewPayload(positionCode, mode));
-        router.push(getInterviewTargetUrl(response.interviewId));
-        return response.interviewId;
-      } finally {
-        setStartingPositionCode(null);
-      }
-    });
+    createInterviewOnceRef.current = createSingleFlight(
+      async (positionCode: string, mode: string) => {
+        setStartingPositionCode(positionCode);
+        try {
+          const response = await createInterview(
+            buildCreateInterviewPayload(positionCode, mode),
+          );
+          router.push(getInterviewTargetUrl(response.interviewId));
+          return response.interviewId;
+        } finally {
+          setStartingPositionCode(null);
+        }
+      },
+    );
   }
 
-  const persistDraft = useCallback((nextValue: string) => {
-    if (!draftStorageKey || typeof window === "undefined") return;
-    if (!nextValue.trim()) {
-      if (draftOwnedByEditorRef.current) {
-        window.localStorage.removeItem(draftStorageKey);
-        setStoredDraft(null);
-        setDraftSavedAt(null);
+  const persistDraft = useCallback(
+    (nextValue: string) => {
+      if (!draftStorageKey || typeof window === "undefined") {
+        return;
       }
-      return;
-    }
-    window.localStorage.setItem(draftStorageKey, nextValue);
-    draftOwnedByEditorRef.current = true;
-    setStoredDraft(nextValue);
-    setDraftSavedAt(Date.now());
-  }, [draftStorageKey]);
 
-  const startPositionInterview = useCallback((positionCode: string, mode = interviewMode) => {
-    if (!positionCode) {
-      setError("请先选择岗位");
-      return;
-    }
+      if (!nextValue.trim()) {
+        if (draftOwnedByEditorRef.current) {
+          window.localStorage.removeItem(draftStorageKey);
+          setStoredDraft(null);
+          setDraftSavedAt(null);
+        }
+        return;
+      }
 
-    void createInterviewOnceRef.current?.(positionCode, mode).catch((requestError) => {
-      setError(getRequestErrorMessage(requestError, "创建面试失败"));
-    });
-  }, [interviewMode]);
+      window.localStorage.setItem(draftStorageKey, nextValue);
+      draftOwnedByEditorRef.current = true;
+      setStoredDraft(nextValue);
+      setDraftSavedAt(Date.now());
+    },
+    [draftStorageKey],
+  );
+
+  const startPositionInterview = useCallback(
+    (positionCode: string, mode = interviewMode) => {
+      if (!positionCode) {
+        setError("请先选择岗位");
+        return;
+      }
+
+      void createInterviewOnceRef.current?.(positionCode, mode).catch(
+        (requestError) => {
+          setError(getRequestErrorMessage(requestError, "创建面试失败"));
+        },
+      );
+    },
+    [interviewMode],
+  );
 
   const clearDraft = useCallback(() => {
     if (draftStorageKey && typeof window !== "undefined") {
@@ -189,39 +270,92 @@ export function InterviewClientV2() {
     setDraftRecoveredAt(null);
   }, [draftStorageKey]);
 
-  const appendConnectionNotice = useCallback((body: string, tone: InterviewSystemTone) => {
-    setConnectionNotices((current) => [...current, createSystemMessage(`connection-${Date.now()}`, body, tone)].slice(-6));
-  }, []);
+  const appendConnectionNotice = useCallback(
+    (body: string, tone: InterviewSystemTone) => {
+      setConnectionNotices((current) =>
+        [
+          ...current,
+          createSystemMessage(`connection-${Date.now()}`, body, {
+            tone,
+            displayStyle: "plain",
+          }),
+        ].slice(-6),
+      );
+    },
+    [],
+  );
 
   const handleSubmitAnswer = useCallback(async () => {
-    if (!interviewId || !detail || !currentMainRoundNumber || !answerText.trim()) return;
+    if (!interviewId || !detail || !currentMainRoundNumber || !answerText.trim()) {
+      return;
+    }
+
     const answer = answerText.trim();
     const pendingId = `pending-answer-${Date.now()}`;
-    setPendingAnswer({ id: pendingId, roundNumber: currentMainRoundNumber, text: answer, timestamp: new Date().toISOString(), status: "sent" });
+    setPendingAnswer({
+      id: pendingId,
+      roundNumber: currentMainRoundNumber,
+      text: answer,
+      timestamp: new Date().toISOString(),
+      status: "sent",
+    });
     setAnswerText("");
     clearDraft();
     setSubmittingAnswer(true);
+
     try {
-      const response = await submitAnswer(interviewId, { answer, inputMode: "text" });
-      setPendingAnswer((current) => current && current.id === pendingId ? { ...current, status: response.aiResponse.type === "follow_up" ? "followup" : "evaluating" } : current);
+      const response = await submitAnswer(interviewId, {
+        answer,
+        inputMode: "text",
+      });
+      setPendingAnswer((current) =>
+        current && current.id === pendingId
+          ? {
+              ...current,
+              status:
+                response.aiResponse.type === "follow_up"
+                  ? "followup"
+                  : "evaluating",
+            }
+          : current,
+      );
       await refreshInterview(interviewId);
     } catch (requestError) {
-      setPendingAnswer((current) => current && current.id === pendingId ? { ...current, status: "failed" } : current);
+      setPendingAnswer((current) =>
+        current && current.id === pendingId
+          ? { ...current, status: "failed" }
+          : current,
+      );
       setAnswerText(answer);
       persistDraft(answer);
       setError(getRequestErrorMessage(requestError, "提交回答失败"));
     } finally {
       setSubmittingAnswer(false);
     }
-  }, [answerText, clearDraft, currentMainRoundNumber, detail, interviewId, persistDraft, refreshInterview]);
+  }, [
+    answerText,
+    clearDraft,
+    currentMainRoundNumber,
+    detail,
+    interviewId,
+    persistDraft,
+    refreshInterview,
+  ]);
 
   const handleFinishInterview = useCallback(async () => {
-    if (!interviewId) return;
+    if (!interviewId) {
+      return;
+    }
+
     setFinishingInterview(true);
     try {
       const response = await finishInterview(interviewId);
       setReportReady(response.status === "completed");
-      setReportProgress(response.status === "completed" ? { progress: 100, stage: "completed", estimatedTime: 0 } : { progress: 10, stage: "ended", estimatedTime: response.estimatedTime });
+      setReportProgress(
+        response.status === "completed"
+          ? { progress: 100, stage: "completed", estimatedTime: 0 }
+          : { progress: 10, stage: "ended", estimatedTime: response.estimatedTime },
+      );
       await refreshInterview(interviewId);
     } catch (requestError) {
       setError(getRequestErrorMessage(requestError, "结束面试失败"));
@@ -230,25 +364,44 @@ export function InterviewClientV2() {
     }
   }, [interviewId, refreshInterview]);
 
-  const handleMessageAction = useCallback((action: InterviewSystemAction) => {
-    if (!interviewId) return;
-    if (action === "view-report") {
-      router.push(`/report/${interviewId}`);
-      return;
-    }
-    if (action === "retry-report") {
-      void handleFinishInterview();
-    }
-  }, [handleFinishInterview, interviewId, router]);
+  const handleMessageAction = useCallback(
+    (action: InterviewSystemAction) => {
+      if (!interviewId) {
+        return;
+      }
+
+      if (action === "view-report") {
+        router.push(`/report/${interviewId}`);
+        return;
+      }
+
+      if (action === "retry-report") {
+        void handleFinishInterview();
+      }
+    },
+    [handleFinishInterview, interviewId, router],
+  );
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated) {
+      return;
+    }
+
     if (!accessToken) {
-      const targetUrl = typeof window !== "undefined" ? `${window.location.pathname}${window.location.search}` : "/interview";
+      const targetUrl =
+        typeof window !== "undefined"
+          ? `${window.location.pathname}${window.location.search}`
+          : "/interview";
       openLogin({ type: "navigate", target: targetUrl });
       return;
     }
-    void getPositions().then(setPositions).catch((requestError) => setError(getRequestErrorMessage(requestError, "岗位加载失败"))).finally(() => setLoading(false));
+
+    void getPositions()
+      .then(setPositions)
+      .catch((requestError) => {
+        setError(getRequestErrorMessage(requestError, "岗位加载失败"));
+      })
+      .finally(() => setLoading(false));
   }, [accessToken, hydrated, openLogin]);
 
   useEffect(() => {
@@ -260,110 +413,338 @@ export function InterviewClientV2() {
   }, [interviewId, refreshInterview]);
 
   useEffect(() => {
-    if (!interviewId || typeof window === "undefined") return;
-    const savedDraft = window.localStorage.getItem(`${DRAFT_STORAGE_PREFIX}${interviewId}`);
-    if (savedDraft?.trim()) setStoredDraft(savedDraft);
+    if (!interviewId || typeof window === "undefined") {
+      return;
+    }
+    const savedDraft = window.localStorage.getItem(
+      `${DRAFT_STORAGE_PREFIX}${interviewId}`,
+    );
+    if (savedDraft?.trim()) {
+      setStoredDraft(savedDraft);
+    }
   }, [interviewId]);
 
   useEffect(() => {
-    if (!detail) return;
+    if (!detail) {
+      return;
+    }
     const timer = window.setInterval(() => setNowTick(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [detail]);
 
   useEffect(() => {
-    if (!pendingAnswer || !detail) return;
-    if (hasPersistedPendingAnswer(detail, pendingAnswer.text)) setPendingAnswer(null);
+    if (!pendingAnswer || !detail) {
+      return;
+    }
+    if (hasPersistedPendingAnswer(detail, pendingAnswer.text)) {
+      setPendingAnswer(null);
+    }
   }, [detail, pendingAnswer]);
 
   useEffect(() => {
-    if (!hydrated || !accessToken || entryMode !== "auto-create" || !positionFromQuery) return;
-    if (autoCreateAttemptRef.current === positionFromQuery) return;
+    if (!hydrated || !accessToken || entryMode !== "auto-create" || !positionFromQuery) {
+      return;
+    }
+    if (autoCreateAttemptRef.current === positionFromQuery) {
+      return;
+    }
     autoCreateAttemptRef.current = positionFromQuery;
-    void createInterviewOnceRef.current?.(positionFromQuery, legacyInterviewMode).catch((requestError) => setError(getRequestErrorMessage(requestError, "创建面试失败")));
+    void createInterviewOnceRef.current?.(
+      positionFromQuery,
+      legacyInterviewMode,
+    ).catch((requestError) => {
+      setError(getRequestErrorMessage(requestError, "创建面试失败"));
+    });
   }, [accessToken, entryMode, hydrated, legacyInterviewMode, positionFromQuery]);
 
   useEffect(() => {
-    if (!hydrated || !interviewId || !accessToken) return;
+    if (!hydrated || !interviewId || !accessToken) {
+      return;
+    }
+
     let active = true;
     const connection = createInterviewHub(accessToken);
-    const joinInterviewRoom = async () => connection.invoke("JoinInterview", { interviewId });
+    const joinInterviewRoom = async () =>
+      connection.invoke("JoinInterview", { interviewId });
+
     connection.on("ReceiveQuestion", () => active && void refreshInterview(interviewId));
     connection.on("ReceiveFollowUp", () => {
-      if (!active) return;
-      setPendingAnswer((current) => !current || current.status === "failed" ? current : { ...current, status: "followup" });
+      if (!active) {
+        return;
+      }
+      setPendingAnswer((current) =>
+        !current || current.status === "failed"
+          ? current
+          : { ...current, status: "followup" },
+      );
       void refreshInterview(interviewId);
     });
     connection.on("InterviewStatusChanged", () => active && void refreshInterview(interviewId));
     connection.on("ReportReady", () => {
-      if (!active) return;
+      if (!active) {
+        return;
+      }
       setReportReady(true);
       setReportProgress({ progress: 100, stage: "completed", estimatedTime: 0 });
       void refreshInterview(interviewId);
     });
     connection.on("TypingIndicator", (payload?: unknown) => {
-      if (!active || (payload && typeof payload === "object" && "isTyping" in payload && payload.isTyping === false)) return;
-      setPendingAnswer((current) => !current || current.status === "failed" || current.status === "followup" ? current : { ...current, status: "evaluating" });
+      if (
+        !active ||
+        (payload &&
+          typeof payload === "object" &&
+          "isTyping" in payload &&
+          payload.isTyping === false)
+      ) {
+        return;
+      }
+      setPendingAnswer((current) =>
+        !current || current.status === "failed" || current.status === "followup"
+          ? current
+          : { ...current, status: "evaluating" },
+      );
     });
     connection.on("ReportProgress", (payload?: unknown) => {
-      if (!active || !payload || typeof payload !== "object" || typeof (payload as { progress?: number }).progress !== "number") return;
-      const candidate = payload as { progress: number; stage?: string; estimatedTime?: number };
-      setReportProgress({ progress: candidate.progress, stage: candidate.stage ?? "ended", estimatedTime: typeof candidate.estimatedTime === "number" ? candidate.estimatedTime : 0 });
+      if (
+        !active ||
+        !payload ||
+        typeof payload !== "object" ||
+        typeof (payload as { progress?: number }).progress !== "number"
+      ) {
+        return;
+      }
+      const candidate = payload as {
+        progress: number;
+        stage?: string;
+        estimatedTime?: number;
+      };
+      setReportProgress({
+        progress: candidate.progress,
+        stage: candidate.stage ?? "ended",
+        estimatedTime:
+          typeof candidate.estimatedTime === "number" ? candidate.estimatedTime : 0,
+      });
     });
     connection.on("ErrorOccurred", (payload?: unknown) => {
-      if (!active) return;
-      if (payload && typeof payload === "object" && "message" in payload && typeof payload.message === "string") setError(payload.message);
+      if (!active) {
+        return;
+      }
+      if (
+        payload &&
+        typeof payload === "object" &&
+        "message" in payload &&
+        typeof payload.message === "string"
+      ) {
+        setError(payload.message);
+      }
       void refreshInterview(interviewId);
     });
-    connection.onreconnecting(() => active && appendConnectionNotice("网络波动，正在重试连接。", "warning"));
+    connection.onreconnecting(() =>
+      active && appendConnectionNotice("网络波动，正在重试连接。", "warning"),
+    );
     connection.onreconnected(() => {
-      if (!active) return;
+      if (!active) {
+        return;
+      }
       appendConnectionNotice("连接已恢复。", "success");
-      void joinInterviewRoom().then(() => refreshInterview(interviewId)).catch((error) => { if (isUnauthorizedSignalRError(error)) { useAuthStore.getState().clearSession(); writeStoredAuth(null); openLogin({ type: "navigate", target: `/interview?interviewId=${encodeURIComponent(interviewId)}` }); } });
+      void joinInterviewRoom()
+        .then(() => refreshInterview(interviewId))
+        .catch((error) => {
+          if (isUnauthorizedSignalRError(error)) {
+            useAuthStore.getState().clearSession();
+            writeStoredAuth(null);
+            openLogin({
+              type: "navigate",
+              target: `/interview?interviewId=${encodeURIComponent(interviewId)}`,
+            });
+          }
+        });
     });
-    connection.onclose(() => active && appendConnectionNotice("连接已断开，请稍后重试。", "danger"));
+    connection.onclose(() =>
+      active && appendConnectionNotice("连接已断开，请稍后重试。", "danger"),
+    );
     void connection.start().then(joinInterviewRoom).catch((error) => {
-      if (!active) return;
+      if (!active) {
+        return;
+      }
       if (isUnauthorizedSignalRError(error)) {
         useAuthStore.getState().clearSession();
         writeStoredAuth(null);
-        openLogin({ type: "navigate", target: `/interview?interviewId=${encodeURIComponent(interviewId)}` });
+        openLogin({
+          type: "navigate",
+          target: `/interview?interviewId=${encodeURIComponent(interviewId)}`,
+        });
         return;
       }
       appendConnectionNotice("暂时无法建立实时连接。", "warning");
     });
-    return () => { active = false; void stopInterviewHub(connection); };
+
+    return () => {
+      active = false;
+      void stopInterviewHub(connection);
+    };
   }, [accessToken, appendConnectionNotice, hydrated, interviewId, openLogin, refreshInterview]);
 
-  const pendingAnswerAlreadyPersisted = useMemo(() => !pendingAnswer || !detail ? false : hasPersistedPendingAnswer(detail, pendingAnswer.text), [detail, pendingAnswer]);
-  const baseMessages = useMemo(() => detail ? buildInterviewTimelineMessages(detail) : [], [detail]);
+  const pendingAnswerAlreadyPersisted = useMemo(
+    () =>
+      !pendingAnswer || !detail
+        ? false
+        : hasPersistedPendingAnswer(detail, pendingAnswer.text),
+    [detail, pendingAnswer],
+  );
+  const baseMessages = useMemo(
+    () => (detail ? buildInterviewTimelineMessages(detail) : []),
+    [detail],
+  );
   const tailMessages = useMemo(() => {
     const messages: InterviewTimelineMessage[] = [];
+
     if (pendingAnswer && !pendingAnswerAlreadyPersisted) {
-      messages.push({ id: pendingAnswer.id, kind: "user", body: pendingAnswer.text, timestamp: formatShortTime(pendingAnswer.timestamp), status: pendingAnswer.status });
+      messages.push({
+        id: pendingAnswer.id,
+        kind: "user",
+        body: pendingAnswer.text,
+        timestamp: formatShortTime(pendingAnswer.timestamp),
+        status: pendingAnswer.status,
+      });
     }
-    if (finishingInterview && detail?.status === "in_progress") messages.push(createSystemMessage("interview-finishing", "正在结束面试，准备生成报告。"));
-    if (detail && detail.status !== "in_progress") messages.push(createSystemMessage("interview-ended", "面试已结束，本场回答已封存。"));
-    if (detail?.status === "report_failed") messages.push(createSystemMessage("report-failed", "报告生成失败，请重新发起生成。", "danger", "retry-report", "重新生成报告"));
-    else if (isCompleted) messages.push(createSystemMessage("report-ready", "报告已生成，点击查看。", "success", "view-report", "查看报告"));
-    else if (detail?.status === "generating_report" && reportProgress) messages.push(createSystemMessage(`report-stage-${reportProgress.stage}`, getReportProgressMessage(reportProgress), reportProgress.stage === "ended" ? "warning" : "default"));
+
+    if (finishingInterview && detail?.status === "in_progress") {
+      messages.push(
+        createSystemMessage("interview-finishing", "正在结束面试，准备生成报告。", {
+          displayStyle: "plain",
+        }),
+      );
+    }
+    if (detail && detail.status !== "in_progress" && detail.status !== "generating_report") {
+      messages.push(
+        createSystemMessage("interview-ended", "面试已结束，本场回答已封存。", {
+          displayStyle: "plain",
+        }),
+      );
+    }
+    if (detail?.status === "report_failed") {
+      messages.push(
+        createSystemMessage("report-failed", "报告生成失败，请重新发起生成。", {
+          tone: "danger",
+          actionKey: "retry-report",
+          actionLabel: "重新生成报告",
+        }),
+      );
+    } else if (isCompleted) {
+      messages.push(
+        createSystemMessage("report-ready", "报告已生成，点击查看。", {
+          tone: "success",
+          actionKey: "view-report",
+          actionLabel: "查看报告",
+        }),
+      );
+    } else if (detail?.status === "generating_report" && reportProgress) {
+      messages.push(
+        createSystemMessage(
+          `report-stage-${reportProgress.stage}`,
+          getReportProgressMessage(reportProgress),
+          {
+            tone: reportProgress.stage === "ended" ? "warning" : "default",
+            displayStyle: "plain",
+          },
+        ),
+      );
+    }
+
     return [...messages, ...connectionNotices];
-  }, [connectionNotices, detail, finishingInterview, isCompleted, pendingAnswer, pendingAnswerAlreadyPersisted, reportProgress]);
+  }, [
+    connectionNotices,
+    detail,
+    finishingInterview,
+    isCompleted,
+    pendingAnswer,
+    pendingAnswerAlreadyPersisted,
+    reportProgress,
+  ]);
   const messages = useMemo(() => [...baseMessages, ...tailMessages], [baseMessages, tailMessages]);
-  const elapsedLabel = useMemo(() => detail ? formatElapsed(detail.createdAt, nowTick) : "00:00", [detail, nowTick]);
-  const draftLabel = useMemo(() => draftRecoveredAt ? `已恢复草稿 · ${formatShortTime(draftRecoveredAt)}` : draftSavedAt ? `草稿已保存 · ${formatShortTime(draftSavedAt)}` : storedDraft && !answerText ? "检测到上次未发送草稿" : undefined, [answerText, draftRecoveredAt, draftSavedAt, storedDraft]);
-  const finishLabel = useMemo(() => finishingInterview ? "处理中..." : isReportFailed ? "重新生成报告" : isReportGenerating ? "生成中" : isCompleted ? "已结束" : "结束面试", [finishingInterview, isCompleted, isReportFailed, isReportGenerating]);
-  const finishDisabled = !interviewId || submittingAnswer || finishingInterview || isReportGenerating || isCompleted;
-  const canSubmit = Boolean(interviewId && detail && answerText.trim() && !submittingAnswer && !finishingInterview && detail.status === "in_progress");
-  const composerPlaceholder = isCompleted ? "面试已结束，报告已生成。可通过消息流中的按钮查看完整报告。" : isReportFailed ? "面试已结束，报告生成失败。可点击“重新生成报告”继续处理。" : isReportGenerating ? "面试已结束，报告正在生成中。" : "请在这里输入你的回答，支持长段落、多点拆解与结构化表达。";
+  const elapsedLabel = useMemo(
+    () => (detail ? formatElapsed(detail.createdAt, nowTick) : "00:00"),
+    [detail, nowTick],
+  );
+  const draftLabel = useMemo(() => {
+    if (draftRecoveredAt) {
+      return `已恢复草稿 · ${formatShortTime(draftRecoveredAt)}`;
+    }
+    if (draftSavedAt) {
+      return `草稿已保存 · ${formatShortTime(draftSavedAt)}`;
+    }
+    if (storedDraft && !answerText) {
+      return "检测到上次未发送草稿";
+    }
+    return undefined;
+  }, [answerText, draftRecoveredAt, draftSavedAt, storedDraft]);
+  const finishLabel = useMemo(() => {
+    if (finishingInterview) {
+      return "处理中...";
+    }
+    if (isReportFailed) {
+      return "重新生成报告";
+    }
+    if (isReportGenerating) {
+      return "生成中";
+    }
+    if (isCompleted) {
+      return "已结束";
+    }
+    return "结束面试";
+  }, [finishingInterview, isCompleted, isReportFailed, isReportGenerating]);
+  const finishDisabled =
+    !interviewId ||
+    submittingAnswer ||
+    finishingInterview ||
+    isReportGenerating ||
+    isCompleted;
+  const canSubmit = Boolean(
+    interviewId &&
+      detail &&
+      answerText.trim() &&
+      !submittingAnswer &&
+      !finishingInterview &&
+      detail.status === "in_progress",
+  );
+  const composerPlaceholder = isCompleted
+    ? "面试已结束，报告已生成。可通过消息流中的按钮查看完整报告。"
+    : isReportFailed
+      ? "面试已结束，报告生成失败。可点击“重新生成报告”继续处理。"
+      : isReportGenerating
+        ? "面试已结束，报告正在生成中。"
+        : "请在这里输入你的回答，支持长段落、多点拆解与结构化表达。";
   const currentRound = detail ? Math.min(detail.currentRound, detail.totalRounds) : 0;
 
-  if (!hydrated) return <LoadingState label="正在初始化面试环境..." />;
-  if (!accessToken) return <RequireLoginState />;
-  if (loading) return <LoadingState label="正在初始化面试环境..." />;
+  if (!hydrated) {
+    return <LoadingState label="正在初始化面试环境..." />;
+  }
+  if (!accessToken) {
+    return <RequireLoginState />;
+  }
+  if (loading) {
+    return <LoadingState label="正在初始化面试环境..." />;
+  }
 
   if (entryMode === "auto-create" && !interviewId) {
-    return error ? <div className="space-y-4"><ErrorState description={error} /><Button disabled={Boolean(startingPositionCode)} onClick={() => positionFromQuery && void createInterviewOnceRef.current?.(positionFromQuery, legacyInterviewMode)} type="button">{startingPositionCode ? "正在创建..." : "重新创建面试"}</Button></div> : <LoadingState label="正在创建面试..." />;
+    return error ? (
+      <div className="space-y-4">
+        <ErrorState description={error} />
+        <Button
+          disabled={Boolean(startingPositionCode)}
+          onClick={() =>
+            positionFromQuery &&
+            void createInterviewOnceRef.current?.(positionFromQuery, legacyInterviewMode)
+          }
+          type="button"
+        >
+          {startingPositionCode ? "正在创建..." : "重新创建面试"}
+        </Button>
+      </div>
+    ) : (
+      <LoadingState label="正在创建面试..." />
+    );
   }
 
   if (showPositionCards) {
@@ -371,11 +752,22 @@ export function InterviewClientV2() {
       <div className="space-y-6">
         <div className="space-y-3">
           <span className="section-label">模拟面试</span>
-          <h2 className="display-title !text-[clamp(2rem,3vw,3.4rem)]">选择一个岗位，直接进入正式面试</h2>
-          <p className="text-caption max-w-[720px] text-[length:var(--token-font-size-lg)]">点击岗位卡片后会立即创建面试，并进入新的聊天式面试工作台。</p>
+          <h2 className="display-title !text-[clamp(2rem,3vw,3.4rem)]">
+            选择一个岗位，直接进入正式面试
+          </h2>
+          <p className="text-caption max-w-[720px] text-[length:var(--token-font-size-lg)]">
+            点击岗位卡片后会立即创建面试，并进入新的聊天式面试工作台。
+          </p>
           <div className="flex gap-2">
             {INTERVIEW_MODE_OPTIONS.map((option) => (
-              <Button key={option.value} onClick={() => setInterviewMode(option.value)} type="button" variant={interviewMode === option.value ? "primary" : "secondary"}>{option.label}</Button>
+              <Button
+                key={option.value}
+                onClick={() => setInterviewMode(option.value)}
+                type="button"
+                variant={interviewMode === option.value ? "primary" : "secondary"}
+              >
+                {option.label}
+              </Button>
             ))}
           </div>
         </div>
@@ -392,12 +784,36 @@ export function InterviewClientV2() {
                 <div className="flex flex-wrap gap-2">
                   {position.tags.map((tag) => {
                     const iconUrl = getTagIconUrl(tag);
-                    return <span className="flex items-center gap-1.5 rounded-full bg-[rgba(17,24,39,0.05)] px-3 py-2 text-xs font-semibold" key={tag}>{iconUrl ? <span aria-hidden="true" className="h-4 w-4 shrink-0 bg-contain bg-center bg-no-repeat" style={{ backgroundImage: `url(${iconUrl})` }} /> : null}{tag}</span>;
+                    return (
+                      <span
+                        className="flex items-center gap-1.5 rounded-full bg-[rgba(17,24,39,0.05)] px-3 py-2 text-xs font-semibold"
+                        key={tag}
+                      >
+                        {iconUrl ? (
+                          <span
+                            aria-hidden="true"
+                            className="h-4 w-4 shrink-0 bg-contain bg-center bg-no-repeat"
+                            style={{ backgroundImage: `url(${iconUrl})` }}
+                          />
+                        ) : null}
+                        {tag}
+                      </span>
+                    );
                   })}
                 </div>
                 <div className="flex items-center justify-between">
                   <p className="text-caption">题量 {position.questionCount}</p>
-                  <Button disabled={Boolean(startingPositionCode)} onClick={() => requireAuth({ onAuthed: () => startPositionInterview(position.code, interviewMode) })} type="button">{startingPositionCode === position.code ? "创建中..." : "开始面试"}</Button>
+                  <Button
+                    disabled={Boolean(startingPositionCode)}
+                    onClick={() =>
+                      requireAuth({
+                        onAuthed: () => startPositionInterview(position.code, interviewMode),
+                      })
+                    }
+                    type="button"
+                  >
+                    {startingPositionCode === position.code ? "创建中..." : "开始面试"}
+                  </Button>
                 </div>
               </div>
             </Card>
@@ -407,13 +823,30 @@ export function InterviewClientV2() {
     );
   }
 
-  if (!interviewId) return <EmptyState description="请先从岗位列表发起面试，创建成功后会直接进入聊天式面试工作台。" title="还没有进行中的面试" />;
-  if (!detail) return <LoadingState label="正在同步当前面试详情..." />;
+  if (!interviewId) {
+    return (
+      <EmptyState
+        description="请先从岗位列表发起面试，创建成功后会直接进入聊天式面试工作台。"
+        title="还没有进行中的面试"
+      />
+    );
+  }
+  if (!detail) {
+    return <LoadingState label="正在同步当前面试详情..." />;
+  }
 
   return (
-    <div className="flex min-h-[calc(100vh-11rem)] flex-col">
-      <InterviewTopBar currentRound={currentRound} elapsedLabel={elapsedLabel} finishDisabled={finishDisabled} finishLabel={finishLabel} onFinish={() => void handleFinishInterview()} positionName={detail.positionName} totalRounds={detail.totalRounds} />
-      <div className="pt-4">{error ? <ErrorState description={error} /> : null}</div>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <InterviewTopBar
+        currentRound={currentRound}
+        elapsedLabel={elapsedLabel}
+        finishDisabled={finishDisabled}
+        finishLabel={finishLabel}
+        onFinish={() => void handleFinishInterview()}
+        positionName={detail.positionName}
+        totalRounds={detail.totalRounds}
+      />
+      <div className="shrink-0 px-4 pt-4">{error ? <ErrorState description={error} /> : null}</div>
       <InterviewMessageList messages={messages} onAction={handleMessageAction} />
       <InterviewComposer
         canRestoreDraft={Boolean(storedDraft && !answerText)}
@@ -421,9 +854,29 @@ export function InterviewClientV2() {
         disabled={detail.status !== "in_progress"}
         draftLabel={draftLabel}
         hintText={undefined}
-        onChange={(nextValue) => { setAnswerText(nextValue); persistDraft(nextValue); }}
-        onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && (event.metaKey || event.ctrlKey)) { event.preventDefault(); if (canSubmit) void handleSubmitAnswer(); } }}
-        onRestoreDraft={() => { if (storedDraft) { setAnswerText(storedDraft); setDraftRecoveredAt(Date.now()); draftOwnedByEditorRef.current = true; } }}
+        onChange={(nextValue) => {
+          setAnswerText(nextValue);
+          persistDraft(nextValue);
+        }}
+        onKeyDown={(event) => {
+          if (
+            event.key === "Enter" &&
+            !event.shiftKey &&
+            (event.metaKey || event.ctrlKey)
+          ) {
+            event.preventDefault();
+            if (canSubmit) {
+              void handleSubmitAnswer();
+            }
+          }
+        }}
+        onRestoreDraft={() => {
+          if (storedDraft) {
+            setAnswerText(storedDraft);
+            setDraftRecoveredAt(Date.now());
+            draftOwnedByEditorRef.current = true;
+          }
+        }}
         onSubmit={() => void handleSubmitAnswer()}
         placeholder={composerPlaceholder}
         sendLabel={submittingAnswer ? "发送中..." : "发送回答"}

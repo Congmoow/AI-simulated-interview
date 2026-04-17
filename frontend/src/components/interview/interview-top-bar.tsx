@@ -22,7 +22,7 @@ export function InterviewTopBar({
   onFinish,
 }: InterviewTopBarProps) {
   return (
-    <div className="sticky top-0 z-20 bg-[rgba(255,255,255,0.94)] px-1 py-3 backdrop-blur">
+    <div className="shrink-0 border-b border-[rgba(15,23,42,0.08)] bg-[rgba(255,255,255,0.94)] px-1 py-3 backdrop-blur">
       <div className="flex h-14 items-center justify-between gap-4 px-3">
         <div className="flex min-w-0 items-center gap-3">
           <span className="section-label !tracking-[0.12em]">当前面试岗位</span>
