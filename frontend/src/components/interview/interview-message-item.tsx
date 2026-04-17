@@ -21,6 +21,7 @@ type InterviewAssistantMessage = {
   body: string;
   tag?: string;
   isCurrent?: boolean;
+  isThinking?: boolean;
 };
 
 type InterviewUserMessage = {
@@ -46,22 +47,6 @@ export type InterviewTimelineMessage =
   | InterviewUserMessage
   | InterviewSystemMessage;
 
-const USER_STATUS_LABELS: Record<InterviewUserMessageStatus, string> = {
-  sent: "已发送",
-  evaluating: "分析中",
-  followup: "生成追问中",
-  recorded: "已记录",
-  failed: "发送失败",
-};
-
-const USER_STATUS_CLASS_NAMES: Record<InterviewUserMessageStatus, string> = {
-  sent: "text-[rgba(226,232,240,0.84)]",
-  evaluating: "text-[rgba(191,219,254,0.92)]",
-  followup: "text-[rgba(253,224,71,0.92)]",
-  recorded: "text-[rgba(167,243,208,0.92)]",
-  failed: "text-[rgba(254,202,202,0.92)]",
-};
-
 interface InterviewMessageItemProps {
   message: InterviewTimelineMessage;
   onAction?: (action: InterviewSystemAction) => void;
@@ -85,6 +70,8 @@ export function InterviewMessageItem({
   }
 
   if (message.kind === "assistant") {
+    const isThinking = message.isThinking === true;
+
     return (
       <div className="flex justify-start">
         <div className="flex max-w-[48%] min-w-0 flex-col items-start gap-2">
@@ -97,14 +84,36 @@ export function InterviewMessageItem({
           <article
             className={cn(
               "inline-block w-fit max-w-full rounded-[20px] rounded-bl-md px-4 py-3 shadow-[0_8px_20px_rgba(15,23,42,0.06)] transition-colors duration-200",
-              message.isCurrent
-                ? "bg-[rgba(255,255,255,0.98)]"
-                : "bg-[rgba(255,255,255,0.92)]",
+              isThinking
+                ? "border border-[rgba(148,163,184,0.2)] bg-[rgba(248,250,252,0.98)]"
+                : message.isCurrent
+                  ? "bg-[rgba(255,255,255,0.98)]"
+                  : "bg-[rgba(255,255,255,0.92)]",
             )}
           >
-            <p className="whitespace-pre-wrap text-[15px] leading-7 text-[var(--token-color-text-primary)]">
-              {message.body}
-            </p>
+            {isThinking ? (
+              <div
+                aria-live="polite"
+                className="flex items-center gap-3 text-[15px] leading-7 text-[var(--token-color-text-primary)]"
+              >
+                <span>{message.body}</span>
+                <span aria-hidden="true" className="flex items-center gap-1.5">
+                  <span className="interview-thinking-dot" />
+                  <span
+                    className="interview-thinking-dot"
+                    style={{ animationDelay: "160ms" }}
+                  />
+                  <span
+                    className="interview-thinking-dot"
+                    style={{ animationDelay: "320ms" }}
+                  />
+                </span>
+              </div>
+            ) : (
+              <p className="whitespace-pre-wrap text-[15px] leading-7 text-[var(--token-color-text-primary)]">
+                {message.body}
+              </p>
+            )}
           </article>
         </div>
       </div>
@@ -118,16 +127,6 @@ export function InterviewMessageItem({
       </div>
       <article className="inline-block w-fit max-w-[48%] rounded-[20px] rounded-br-md bg-[linear-gradient(180deg,#2f7df6,#2369d4)] px-4 py-3 text-white shadow-[0_14px_32px_rgba(35,105,212,0.22)]">
         <p className="whitespace-pre-wrap text-[15px] leading-7">{message.body}</p>
-        <div className="mt-2 flex flex-wrap items-center justify-end gap-3 text-[12px]">
-          <span
-            className={cn(
-              "font-medium",
-              USER_STATUS_CLASS_NAMES[message.status],
-            )}
-          >
-            {USER_STATUS_LABELS[message.status]}
-          </span>
-        </div>
       </article>
     </div>
   );

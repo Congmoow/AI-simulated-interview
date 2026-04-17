@@ -33,6 +33,70 @@ from app.services.backend_ai_settings import RuntimeAiSettings
 logger = logging.getLogger(__name__)
 _shared_clients: dict[tuple[str, str], httpx.Client] = {}
 _shared_clients_lock = threading.Lock()
+STANDARD_DIMENSION_WEIGHTS = {
+    "technicalAccuracy": 0.30,
+    "knowledgeDepth": 0.20,
+    "logicalThinking": 0.15,
+    "positionMatch": 0.15,
+    "projectAuthenticity": 0.10,
+    "fluency": 0.05,
+    "clarity": 0.03,
+    "confidence": 0.02,
+}
+STANDARD_DIMENSION_ALIASES = {
+    "technicalAccuracy": (
+        "technicalAccuracy",
+        "technicalFoundation",
+        "frameworkKnowledge",
+        "technicalDepth",
+        "Java 核心与框架",
+    ),
+    "knowledgeDepth": (
+        "knowledgeDepth",
+        "technicalDepth",
+        "frameworkKnowledge",
+        "technicalFoundation",
+        "problemSolving",
+        "systemDesign",
+        "Java 核心与框架",
+        "分布式与高并发",
+    ),
+    "logicalThinking": (
+        "logicalThinking",
+        "problemSolving",
+        "systemDesign",
+        "分布式与高并发",
+    ),
+    "positionMatch": (
+        "positionMatch",
+        "projectExperience",
+        "项目实战经验",
+        "systemDesign",
+        "technicalDepth",
+        "frameworkKnowledge",
+        "Java 核心与框架",
+    ),
+    "projectAuthenticity": (
+        "projectAuthenticity",
+        "projectExperience",
+        "项目实战经验",
+    ),
+    "fluency": (
+        "fluency",
+        "communication",
+        "沟通与表达",
+    ),
+    "clarity": (
+        "clarity",
+        "communication",
+        "沟通与表达",
+    ),
+    "confidence": (
+        "confidence",
+        "communication",
+        "沟通与表达",
+    ),
+}
 
 
 def get_shared_http_client(base_url: str, api_key: str) -> httpx.Client:
@@ -108,12 +172,23 @@ class OpenAICompatibleProvider(ModelProvider):
 
     def score_interview(self, request: ScoreInterviewRequest) -> ScoreInterviewResponse:
         rounds_text = self._build_score_rounds_text(request.rounds)
-        weights = {"technicalAccuracy": 0.30, "knowledgeDepth": 0.20, "logicalThinking": 0.15, "positionMatch": 0.15, "projectAuthenticity": 0.10, "fluency": 0.05, "clarity": 0.03, "confidence": 0.02}
         try:
             payload = self._chat_json(
                 step="score_interview",
-                system_prompt="You are a Chinese technical interview scorer. Return JSON only with overallScore, rankPercentile, dimensionScores, dimensionDetails and scoreBreakdown.",
-                user_prompt=f"Position: {request.position_code}\nInterview summary:\n{rounds_text}\nReturn JSON only.",
+                system_prompt=(
+                    "You are a Chinese technical interview scorer. Return JSON only. "
+                    "You must score exactly these eight dimension keys in dimensionScores or dimensions: "
+                    "technicalAccuracy, knowledgeDepth, logicalThinking, positionMatch, "
+                    "projectAuthenticity, fluency, clarity, confidence. "
+                    "Do not rename any dimension key. Each dimension must contain a numeric score between 0 and 100. "
+                    "You may also include detail text for each dimension. "
+                    "Always return overallScore, rankPercentile, dimensionScores or dimensions, dimensionDetails and scoreBreakdown."
+                ),
+                user_prompt=(
+                    f"Position: {request.position_code}\n"
+                    f"Interview summary:\n{rounds_text}\n"
+                    "Return JSON only. Score every required dimension even when the evidence is weak or negative."
+                ),
                 temperature=0.2,
                 max_tokens=min(max(self.settings.max_tokens, 512), 900),
                 timeout_seconds=45.0,
@@ -121,27 +196,29 @@ class OpenAICompatibleProvider(ModelProvider):
             overall_score = self._as_number(payload.get("overallScore"))
             rank_percentile = self._as_number(payload.get("rankPercentile"))
             parsed_dimension_scores = payload.get("dimensionScores")
-            if not isinstance(parsed_dimension_scores, dict):
-                parsed_dimension_scores = payload.get("dimensions")
-            if overall_score is None or rank_percentile is None or not isinstance(parsed_dimension_scores, dict):
+            parsed_dimensions = payload.get("dimensions")
+            if overall_score is None or rank_percentile is None:
                 raise ValueError("invalid score payload")
-            dimension_scores: dict[str, DimensionScore] = {}
-            for key, weight in weights.items():
-                raw_value = parsed_dimension_scores.get(key)
-                if isinstance(raw_value, dict):
-                    raw_score = self._as_number(raw_value.get("score"))
-                else:
-                    raw_score = self._as_number(raw_value)
-                if raw_score is None:
-                    raw_score = overall_score
-                dimension_scores[key] = DimensionScore(score=max(0, min(raw_score, 100)), weight=weight)
+            score_sources = [
+                source
+                for source in (parsed_dimension_scores, parsed_dimensions)
+                if isinstance(source, dict)
+            ]
+            if not score_sources:
+                raise ValueError("invalid score payload")
+            raw_detail_map = self._merge_detail_maps(
+                self._normalize_detail_map(payload.get("dimensionDetails")),
+                self._extract_dimension_details(parsed_dimension_scores),
+                self._extract_dimension_details(parsed_dimensions),
+            )
+            dimension_scores = self._normalize_standard_dimension_scores(score_sources, overall_score)
             score_breakdown = payload.get("scoreBreakdown")
             if score_breakdown is None or not isinstance(score_breakdown, dict):
                 score_breakdown = {}
             return ScoreInterviewResponse(
                 overallScore=max(0, min(overall_score, 100)),
                 dimensionScores=dimension_scores,
-                dimensionDetails=self._normalize_detail_map(payload.get("dimensionDetails") or self._extract_dimension_details(payload.get("dimensions"))),
+                dimensionDetails=self._normalize_standard_dimension_details(score_sources, raw_detail_map),
                 scoreBreakdown=score_breakdown,
                 rankPercentile=max(0, min(rank_percentile, 100)),
                 modelVersion=self.model_version,
@@ -340,6 +417,87 @@ class OpenAICompatibleProvider(ModelProvider):
             if isinstance(item, dict) and item.get("detail"):
                 result[str(key)] = str(item["detail"]).strip()
         return result
+
+    @staticmethod
+    def _merge_detail_maps(*maps: dict[str, str]) -> dict[str, str]:
+        result: dict[str, str] = {}
+        for item in maps:
+            for key, value in item.items():
+                if key not in result and value:
+                    result[key] = value
+        return result
+
+    @classmethod
+    def _normalize_standard_dimension_scores(cls, score_sources: list[dict[str, Any]], overall_score: float) -> dict[str, DimensionScore]:
+        result: dict[str, DimensionScore] = {}
+        for key, weight in STANDARD_DIMENSION_WEIGHTS.items():
+            raw_score = cls._resolve_dimension_score(score_sources, key)
+            if raw_score is None:
+                raw_score = overall_score
+            result[key] = DimensionScore(score=max(0, min(raw_score, 100)), weight=weight)
+        return result
+
+    @classmethod
+    def _normalize_standard_dimension_details(cls, score_sources: list[dict[str, Any]], raw_details: dict[str, str]) -> dict[str, str]:
+        result: dict[str, str] = {}
+        for key in STANDARD_DIMENSION_WEIGHTS:
+            detail = cls._resolve_dimension_detail(score_sources, raw_details, key)
+            if detail:
+                result[key] = detail
+        return result
+
+    @classmethod
+    def _resolve_dimension_score(cls, score_sources: list[dict[str, Any]], standard_key: str) -> float | None:
+        aliases = STANDARD_DIMENSION_ALIASES.get(standard_key, (standard_key,))
+        for source in score_sources:
+            raw_value = cls._find_matching_dimension_value(source, aliases)
+            raw_score = cls._extract_dimension_score(raw_value)
+            if raw_score is not None:
+                return raw_score
+        return None
+
+    @classmethod
+    def _resolve_dimension_detail(cls, score_sources: list[dict[str, Any]], raw_details: dict[str, str], standard_key: str) -> str:
+        aliases = STANDARD_DIMENSION_ALIASES.get(standard_key, (standard_key,))
+        detail = cls._find_matching_dimension_text(raw_details, aliases)
+        if detail:
+            return detail
+        for source in score_sources:
+            raw_value = cls._find_matching_dimension_value(source, aliases)
+            if isinstance(raw_value, dict):
+                detail = cls._as_text(raw_value.get("detail"))
+                if detail:
+                    return detail
+        return ""
+
+    @classmethod
+    def _find_matching_dimension_value(cls, source: dict[str, Any], aliases: tuple[str, ...]) -> Any:
+        for alias in aliases:
+            for key, value in source.items():
+                if cls._dimension_key_matches(key, alias):
+                    return value
+        return None
+
+    @classmethod
+    def _find_matching_dimension_text(cls, source: dict[str, str], aliases: tuple[str, ...]) -> str:
+        for alias in aliases:
+            for key, value in source.items():
+                if cls._dimension_key_matches(key, alias):
+                    return value
+        return ""
+
+    @classmethod
+    def _dimension_key_matches(cls, raw_key: Any, alias: str) -> bool:
+        text = cls._as_text(raw_key)
+        if not text:
+            return False
+        return text == alias or text.lower() == alias.lower()
+
+    @classmethod
+    def _extract_dimension_score(cls, raw_value: Any) -> float | None:
+        if isinstance(raw_value, dict):
+            return cls._as_number(raw_value.get("score"))
+        return cls._as_number(raw_value)
 
     @classmethod
     def _build_score_rounds_text(cls, rounds: list[Any]) -> str:

@@ -214,6 +214,41 @@ def test_generate_report_should_use_real_ai_response(monkeypatch) -> None:
     assert response.model_version == "qwen:qwen-plus"
 
 
+def test_score_interview_should_map_non_standard_dimension_keys_to_standard_dimensions(monkeypatch) -> None:
+    provider = _build_provider()
+
+    monkeypatch.setattr(
+        provider,
+        "_chat_json",
+        lambda **_: {
+            "overallScore": 15,
+            "rankPercentile": 5,
+            "dimensions": {
+                "technicalFoundation": {"score": 10, "detail": "基础原理薄弱"},
+                "projectExperience": {"score": 20, "detail": "项目案例不足"},
+                "problemSolving": {"score": 15, "detail": "问题拆解能力一般"},
+                "communication": {"score": 50, "detail": "表达尚可"},
+            },
+            "scoreBreakdown": {},
+        },
+    )
+
+    response = provider.score_interview(_build_score_request())
+
+    assert response.dimension_scores["technicalAccuracy"].score == 10
+    assert response.dimension_scores["knowledgeDepth"].score == 10
+    assert response.dimension_scores["logicalThinking"].score == 15
+    assert response.dimension_scores["positionMatch"].score == 20
+    assert response.dimension_scores["projectAuthenticity"].score == 20
+    assert response.dimension_scores["fluency"].score == 50
+    assert response.dimension_scores["clarity"].score == 50
+    assert response.dimension_scores["confidence"].score == 50
+    assert response.dimension_details["technicalAccuracy"] == "基础原理薄弱"
+    assert response.dimension_details["projectAuthenticity"] == "项目案例不足"
+    assert response.dimension_details["logicalThinking"] == "问题拆解能力一般"
+    assert response.dimension_details["clarity"] == "表达尚可"
+
+
 def test_score_and_report_should_use_new_timeouts_and_skip_finish_step(monkeypatch) -> None:
     provider = _build_provider()
     calls: list[tuple[str, float, int]] = []

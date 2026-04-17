@@ -28,6 +28,7 @@ import {
   buildInterviewTimelineMessages,
   hasPersistedPendingAnswer,
 } from "@/features/interview/message-flow";
+import { buildRealtimeInterviewMessages } from "@/features/interview/realtime-message-flow";
 import { getTagIconUrl } from "@/utils/icon-utils";
 import { getRequestErrorMessage } from "@/utils/request-error";
 import { writeStoredAuth } from "@/utils/storage";
@@ -162,6 +163,7 @@ export function InterviewClientV2() {
   const [, setConnectionStatus] = useState<InterviewConnectionStatus>("disconnected");
   const [connectionNotices, setConnectionNotices] = useState<SystemTimelineMessage[]>([]);
   const [pendingAnswer, setPendingAnswer] = useState<LocalPendingAnswer | null>(null);
+  const [assistantThinking, setAssistantThinking] = useState(false);
   const [reportReady, setReportReady] = useState(false);
   const [storedDraft, setStoredDraft] = useState<string | null>(null);
   const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
@@ -198,8 +200,12 @@ export function InterviewClientV2() {
             ? { progress: 100, stage: "completed", estimatedTime: 0 }
             : null,
       );
+      if (response.status !== "in_progress") {
+        setAssistantThinking(false);
+      }
       setError(null);
     } catch (requestError) {
+      setAssistantThinking(false);
       setError(getRequestErrorMessage(requestError, "面试详情加载失败"));
     }
   }, []);
@@ -299,6 +305,7 @@ export function InterviewClientV2() {
       timestamp: new Date().toISOString(),
       status: "sent",
     });
+    setAssistantThinking(false);
     setAnswerText("");
     clearDraft();
     setSubmittingAnswer(true);
@@ -321,6 +328,7 @@ export function InterviewClientV2() {
       );
       await refreshInterview(interviewId);
     } catch (requestError) {
+      setAssistantThinking(false);
       setPendingAnswer((current) =>
         current && current.id === pendingId
           ? { ...current, status: "failed" }
@@ -467,11 +475,18 @@ export function InterviewClientV2() {
     const joinInterviewRoom = async () =>
       connection.invoke("JoinInterview", { interviewId });
 
-    connection.on("ReceiveQuestion", () => active && void refreshInterview(interviewId));
+    connection.on("ReceiveQuestion", () => {
+      if (!active) {
+        return;
+      }
+      setAssistantThinking(false);
+      void refreshInterview(interviewId);
+    });
     connection.on("ReceiveFollowUp", () => {
       if (!active) {
         return;
       }
+      setAssistantThinking(false);
       setPendingAnswer((current) =>
         !current || current.status === "failed"
           ? current
@@ -479,11 +494,18 @@ export function InterviewClientV2() {
       );
       void refreshInterview(interviewId);
     });
-    connection.on("InterviewStatusChanged", () => active && void refreshInterview(interviewId));
+    connection.on("InterviewStatusChanged", () => {
+      if (!active) {
+        return;
+      }
+      setAssistantThinking(false);
+      void refreshInterview(interviewId);
+    });
     connection.on("ReportReady", () => {
       if (!active) {
         return;
       }
+      setAssistantThinking(false);
       setReportReady(true);
       setReportProgress({ progress: 100, stage: "completed", estimatedTime: 0 });
       void refreshInterview(interviewId);
@@ -496,8 +518,10 @@ export function InterviewClientV2() {
           "isTyping" in payload &&
           payload.isTyping === false)
       ) {
+        setAssistantThinking(false);
         return;
       }
+      setAssistantThinking(true);
       setPendingAnswer((current) =>
         !current || current.status === "failed" || current.status === "followup"
           ? current
@@ -529,6 +553,7 @@ export function InterviewClientV2() {
       if (!active) {
         return;
       }
+      setAssistantThinking(false);
       if (
         payload &&
         typeof payload === "object" &&
@@ -539,13 +564,18 @@ export function InterviewClientV2() {
       }
       void refreshInterview(interviewId);
     });
-    connection.onreconnecting(() =>
-      active && appendConnectionNotice("网络波动，正在重试连接。", "warning"),
-    );
+    connection.onreconnecting(() => {
+      if (!active) {
+        return;
+      }
+      setAssistantThinking(false);
+      appendConnectionNotice("网络波动，正在重试连接。", "warning");
+    });
     connection.onreconnected(() => {
       if (!active) {
         return;
       }
+      setAssistantThinking(false);
       appendConnectionNotice("连接已恢复。", "success");
       void joinInterviewRoom()
         .then(() => refreshInterview(interviewId))
@@ -560,9 +590,13 @@ export function InterviewClientV2() {
           }
         });
     });
-    connection.onclose(() =>
-      active && appendConnectionNotice("连接已断开，请稍后重试。", "danger"),
-    );
+    connection.onclose(() => {
+      if (!active) {
+        return;
+      }
+      setAssistantThinking(false);
+      appendConnectionNotice("连接已断开，请稍后重试。", "danger");
+    });
     void connection.start().then(joinInterviewRoom).catch((error) => {
       if (!active) {
         return;
@@ -599,15 +633,13 @@ export function InterviewClientV2() {
   const tailMessages = useMemo(() => {
     const messages: InterviewTimelineMessage[] = [];
 
-    if (pendingAnswer && !pendingAnswerAlreadyPersisted) {
-      messages.push({
-        id: pendingAnswer.id,
-        kind: "user",
-        body: pendingAnswer.text,
-        timestamp: formatShortTime(pendingAnswer.timestamp),
-        status: pendingAnswer.status,
-      });
-    }
+    messages.push(
+      ...buildRealtimeInterviewMessages({
+        pendingAnswer,
+        pendingAnswerAlreadyPersisted,
+        assistantThinking,
+      }),
+    );
 
     if (finishingInterview && detail?.status === "in_progress") {
       messages.push(
@@ -661,6 +693,7 @@ export function InterviewClientV2() {
     pendingAnswer,
     pendingAnswerAlreadyPersisted,
     reportProgress,
+    assistantThinking,
   ]);
   const messages = useMemo(() => [...baseMessages, ...tailMessages], [baseMessages, tailMessages]);
   const elapsedLabel = useMemo(

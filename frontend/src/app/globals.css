@@ -60,8 +60,31 @@ select {
   }
 }
 
+@keyframes interview-thinking-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+
+  40% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
 .page-enter {
   animation: fade-slide-up var(--token-transition-slow);
+}
+
+.interview-thinking-dot {
+  display: inline-flex;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: rgba(37, 99, 235, 0.8);
+  animation: interview-thinking-dot 1.2s ease-in-out infinite;
 }
 
 .shell-background::before {
