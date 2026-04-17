@@ -1,4 +1,5 @@
 using AiInterview.Api.Data;
+using AiInterview.Api.Constants;
 using AiInterview.Api.Models.Entities;
 using AiInterview.Api.Repositories.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -17,12 +18,18 @@ public class InterviewRepository(ApplicationDbContext dbContext) : IInterviewRep
         return dbContext.InterviewRounds.AddAsync(round, cancellationToken).AsTask();
     }
 
+    public Task AddMessageAsync(InterviewMessage message, CancellationToken cancellationToken = default)
+    {
+        return dbContext.InterviewMessages.AddAsync(message, cancellationToken).AsTask();
+    }
+
     public Task<Interview?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return dbContext.Interviews
             .Include(x => x.Position)
             .Include(x => x.Score)
             .Include(x => x.Report)
+            .Include(x => x.Messages.OrderBy(message => message.Sequence))
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
     }
 
@@ -33,7 +40,35 @@ public class InterviewRepository(ApplicationDbContext dbContext) : IInterviewRep
             .Include(x => x.Score)
             .Include(x => x.Report)
             .Include(x => x.Rounds.OrderBy(r => r.RoundNumber))
+            .Include(x => x.Messages.OrderBy(message => message.Sequence))
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+    }
+
+    public Task<List<InterviewMessage>> GetMessagesAsync(Guid interviewId, CancellationToken cancellationToken = default)
+    {
+        return dbContext.InterviewMessages
+            .Where(x => x.InterviewId == interviewId)
+            .OrderBy(x => x.Sequence)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<int> GetNextMessageSequenceAsync(Guid interviewId, CancellationToken cancellationToken = default)
+    {
+        var maxSequence = await dbContext.InterviewMessages
+            .Where(x => x.InterviewId == interviewId)
+            .Select(x => (int?)x.Sequence)
+            .MaxAsync(cancellationToken);
+
+        return (maxSequence ?? 0) + 1;
+    }
+
+    public Task<List<Guid>> GetInterviewIdsPendingReportGenerationAsync(CancellationToken cancellationToken = default)
+    {
+        return dbContext.Interviews
+            .Where(x => x.Status == InterviewStatuses.GeneratingReport)
+            .Where(x => !dbContext.InterviewReports.Any(report => report.InterviewId == x.Id))
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
     }
 
     public Task<List<Interview>> GetUserHistoryAsync(Guid userId, string? positionCode, string? status, DateOnly? startDate, DateOnly? endDate, int page, int pageSize, CancellationToken cancellationToken = default)
@@ -69,7 +104,19 @@ public class InterviewRepository(ApplicationDbContext dbContext) : IInterviewRep
 
         if (!string.IsNullOrWhiteSpace(status))
         {
-            query = query.Where(x => x.Status == status);
+            var statuses = status
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+
+            if (statuses.Length == 1)
+            {
+                query = query.Where(x => x.Status == statuses[0]);
+            }
+            else if (statuses.Length > 1)
+            {
+                query = query.Where(x => statuses.Contains(x.Status));
+            }
         }
 
         if (startDate.HasValue)

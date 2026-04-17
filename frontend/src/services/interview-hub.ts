@@ -12,7 +12,7 @@ export function createInterviewHub(token: string): HubConnection {
       accessTokenFactory: () => token,
     })
     .withAutomaticReconnect()
-    .configureLogging(LogLevel.Warning)
+    .configureLogging(LogLevel.None)
     .build();
 }
 

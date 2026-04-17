@@ -83,6 +83,7 @@ export interface InterviewCurrentDetail {
   currentRound: number;
   totalRounds: number;
   createdAt: string;
+  messages: InterviewMessageItem[];
   rounds: Array<{
     roundNumber: number;
     question: {
@@ -94,6 +95,17 @@ export interface InterviewCurrentDetail {
     aiFollowUp?: string | null;
     answeredAt?: string | null;
   }>;
+}
+
+export interface InterviewMessageItem {
+  id: string;
+  role: string;
+  messageType: string;
+  content: string;
+  relatedQuestionId?: string | null;
+  sequence: number;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
 }
 
 export interface SubmitAnswerPayload {
@@ -110,7 +122,7 @@ export interface SubmitAnswerPayload {
 export interface FinishInterviewPayload {
   interviewId: string;
   status: string;
-  reportId: string;
+  reportId?: string | null;
   estimatedTime: number;
 }
 

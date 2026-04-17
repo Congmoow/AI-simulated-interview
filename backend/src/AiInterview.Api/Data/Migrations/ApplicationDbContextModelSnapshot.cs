@@ -34,11 +34,14 @@ namespace AiInterview.Api.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
-                    b.Property<string>("Provider")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("provider");
+                    b.Property<string>("ApiKeyMasked")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("api_key_masked");
+
+                    b.Property<string>("ApiKeyProtected")
+                        .HasColumnType("text")
+                        .HasColumnName("api_key_protected");
 
                     b.Property<string>("BaseUrl")
                         .IsRequired()
@@ -46,41 +49,45 @@ namespace AiInterview.Api.Data.Migrations
                         .HasColumnType("character varying(500)")
                         .HasColumnName("base_url");
 
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<int>("MaxTokens")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(2048)
+                        .HasColumnName("max_tokens");
+
                     b.Property<string>("Model")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
                         .HasColumnName("model");
 
-                    b.Property<string>("ApiKeyProtected")
-                        .HasColumnType("text")
-                        .HasColumnName("api_key_protected");
-
-                    b.Property<string>("ApiKeyMasked")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("api_key_masked");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_enabled");
-
-                    b.Property<decimal>("Temperature")
-                        .HasPrecision(4, 2)
-                        .HasDefaultValue(0.7m)
-                        .HasColumnType("numeric(4,2)")
-                        .HasColumnName("temperature");
-
-                    b.Property<int>("MaxTokens")
-                        .HasDefaultValue(2048)
-                        .HasColumnType("integer")
-                        .HasColumnName("max_tokens");
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("provider");
 
                     b.Property<string>("SystemPrompt")
                         .IsRequired()
-                        .HasDefaultValue("")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("text")
+                        .HasDefaultValue("")
                         .HasColumnName("system_prompt");
+
+                    b.Property<decimal>("Temperature")
+                        .ValueGeneratedOnAdd()
+                        .HasPrecision(4, 2)
+                        .HasColumnType("numeric(4,2)")
+                        .HasDefaultValue(0.7m)
+                        .HasColumnName("temperature");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
 
                     b.Property<string>("UpdatedBy")
                         .IsRequired()
@@ -88,14 +95,10 @@ namespace AiInterview.Api.Data.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("updated_by");
 
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
                     b.HasKey("Id")
                         .HasName("pk_ai_provider_settings");
 
-                    b.ToTable("ai_provider_settings");
+                    b.ToTable("ai_provider_settings", (string)null);
                 });
 
             modelBuilder.Entity("AiInterview.Api.Models.Entities.Interview", b =>
@@ -194,6 +197,69 @@ namespace AiInterview.Api.Data.Migrations
                         .HasDatabaseName("idx_interviews_user_status");
 
                     b.ToTable("interviews", (string)null);
+                });
+
+            modelBuilder.Entity("AiInterview.Api.Models.Entities.InterviewMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("content");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("InterviewId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("interview_id");
+
+                    b.Property<string>("MessageType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("message_type");
+
+                    b.Property<string>("Metadata")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("metadata")
+                        .HasDefaultValueSql("'{}'::jsonb");
+
+                    b.Property<Guid?>("RelatedQuestionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("related_question_id");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("role");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("integer")
+                        .HasColumnName("sequence");
+
+                    b.HasKey("Id")
+                        .HasName("pk_interview_messages");
+
+                    b.HasIndex("InterviewId")
+                        .HasDatabaseName("idx_messages_interview");
+
+                    b.HasIndex("RelatedQuestionId")
+                        .HasDatabaseName("idx_messages_related_question");
+
+                    b.HasIndex("InterviewId", "Sequence")
+                        .IsUnique()
+                        .HasDatabaseName("idx_messages_interview_sequence");
+
+                    b.ToTable("interview_messages", (string)null);
                 });
 
             modelBuilder.Entity("AiInterview.Api.Models.Entities.InterviewReport", b =>
@@ -1133,6 +1199,25 @@ namespace AiInterview.Api.Data.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("AiInterview.Api.Models.Entities.InterviewMessage", b =>
+                {
+                    b.HasOne("AiInterview.Api.Models.Entities.Interview", "Interview")
+                        .WithMany("Messages")
+                        .HasForeignKey("InterviewId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_interview_messages_interviews_interview_id");
+
+                    b.HasOne("AiInterview.Api.Models.Entities.QuestionBank", "RelatedQuestion")
+                        .WithMany()
+                        .HasForeignKey("RelatedQuestionId")
+                        .HasConstraintName("fk_interview_messages_question_banks_related_question_id");
+
+                    b.Navigation("Interview");
+
+                    b.Navigation("RelatedQuestion");
+                });
+
             modelBuilder.Entity("AiInterview.Api.Models.Entities.InterviewReport", b =>
                 {
                     b.HasOne("AiInterview.Api.Models.Entities.Interview", "Interview")
@@ -1294,6 +1379,8 @@ namespace AiInterview.Api.Data.Migrations
 
             modelBuilder.Entity("AiInterview.Api.Models.Entities.Interview", b =>
                 {
+                    b.Navigation("Messages");
+
                     b.Navigation("Report");
 
                     b.Navigation("Rounds");

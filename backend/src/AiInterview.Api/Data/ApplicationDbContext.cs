@@ -20,6 +20,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 
     public DbSet<InterviewRound> InterviewRounds => Set<InterviewRound>();
 
+    public DbSet<InterviewMessage> InterviewMessages => Set<InterviewMessage>();
+
     public DbSet<InterviewScore> InterviewScores => Set<InterviewScore>();
 
     public DbSet<InterviewReport> InterviewReports => Set<InterviewReport>();
@@ -43,6 +45,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         ConfigureKnowledgeChunk(modelBuilder);
         ConfigureInterview(modelBuilder);
         ConfigureInterviewRound(modelBuilder);
+        ConfigureInterviewMessage(modelBuilder);
         ConfigureInterviewScore(modelBuilder);
         ConfigureInterviewReport(modelBuilder);
         ConfigureLearningResource(modelBuilder);
@@ -217,6 +220,29 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         entity.HasOne(x => x.Question)
             .WithMany()
             .HasForeignKey(x => x.QuestionId);
+    }
+
+    private static void ConfigureInterviewMessage(ModelBuilder modelBuilder)
+    {
+        var entity = modelBuilder.Entity<InterviewMessage>();
+        entity.ToTable("interview_messages");
+        entity.HasKey(x => x.Id);
+        entity.Property(x => x.Role).HasMaxLength(20).IsRequired();
+        entity.Property(x => x.MessageType).HasMaxLength(20).IsRequired();
+        entity.Property(x => x.Content).HasColumnType("text").IsRequired();
+        entity.Property(x => x.Metadata).HasColumnType("jsonb").HasDefaultValueSql("'{}'::jsonb");
+        entity.HasIndex(x => x.InterviewId).HasDatabaseName("idx_messages_interview");
+        entity.HasIndex(x => new { x.InterviewId, x.Sequence })
+            .HasDatabaseName("idx_messages_interview_sequence")
+            .IsUnique();
+        entity.HasIndex(x => x.RelatedQuestionId).HasDatabaseName("idx_messages_related_question");
+        entity.HasOne(x => x.Interview)
+            .WithMany(x => x.Messages)
+            .HasForeignKey(x => x.InterviewId)
+            .OnDelete(DeleteBehavior.Cascade);
+        entity.HasOne(x => x.RelatedQuestion)
+            .WithMany()
+            .HasForeignKey(x => x.RelatedQuestionId);
     }
 
     private static void ConfigureInterviewScore(ModelBuilder modelBuilder)

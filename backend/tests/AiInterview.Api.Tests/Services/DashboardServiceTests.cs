@@ -55,6 +55,11 @@ sealed class InMemoryDashboardInterviewRepository : IInterviewRepository
         throw new NotSupportedException();
     }
 
+    public Task AddMessageAsync(InterviewMessage message, CancellationToken cancellationToken = default)
+    {
+        throw new NotSupportedException();
+    }
+
     public Task<Interview?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return Task.FromResult(Interviews.FirstOrDefault(x => x.Id == id));
@@ -63,6 +68,21 @@ sealed class InMemoryDashboardInterviewRepository : IInterviewRepository
     public Task<Interview?> GetByIdWithDetailsAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return Task.FromResult(Interviews.FirstOrDefault(x => x.Id == id));
+    }
+
+    public Task<List<InterviewMessage>> GetMessagesAsync(Guid interviewId, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new List<InterviewMessage>());
+    }
+
+    public Task<int> GetNextMessageSequenceAsync(Guid interviewId, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(1);
+    }
+
+    public Task<List<Guid>> GetInterviewIdsPendingReportGenerationAsync(CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new List<Guid>());
     }
 
     public Task<List<Interview>> GetUserHistoryAsync(

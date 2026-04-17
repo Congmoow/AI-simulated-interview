@@ -133,6 +133,7 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IPositionService, PositionService>();
 builder.Services.AddScoped<IQuestionService, QuestionService>();
 builder.Services.AddScoped<IInterviewService, InterviewService>();
+builder.Services.AddScoped<IInterviewReportGenerationService, InterviewReportGenerationService>();
 builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IRecommendationService, RecommendationService>();
@@ -142,7 +143,9 @@ builder.Services.AddScoped<IKnowledgeRepository, KnowledgeRepository>();
 builder.Services.AddScoped<IKnowledgeService, KnowledgeService>();
 builder.Services.AddScoped<IAiSettingsRepository, AiSettingsRepository>();
 builder.Services.AddScoped<IAiSettingsService, AiSettingsService>();
+builder.Services.AddSingleton<IInterviewReportGenerationQueue, InterviewReportGenerationQueue>();
 builder.Services.AddHostedService<StaleDocumentCleanupService>();
+builder.Services.AddHostedService<InterviewReportGenerationHostedService>();
 
 builder.Services.AddHttpClient<IAiIntegrationService, AiIntegrationService>((serviceProvider, client) =>
 {

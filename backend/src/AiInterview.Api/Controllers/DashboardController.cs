@@ -13,6 +13,6 @@ public class DashboardController(IDashboardService dashboardService) : ApiContro
     public async Task<IActionResult> GetInsights(CancellationToken cancellationToken)
     {
         var result = await dashboardService.GetInsightsAsync(User.GetUserId(), cancellationToken);
-        return Success(result, "获取仪表盘能力概览成功");
+        return Success(result, "获取个人画像能力概览成功");
     }
 }

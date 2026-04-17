@@ -11,6 +11,7 @@ class GenerateReportRequest(BaseModel):
     position_code: str = Field(alias="positionCode")
     overall_score: float = Field(alias="overallScore")
     dimension_scores: dict[str, DimensionScore] = Field(default_factory=dict, alias="dimensionScores")
+    dimension_details: dict[str, str] = Field(default_factory=dict, alias="dimensionDetails")
     rounds: list[ScoreRound] = Field(default_factory=list, alias="rounds")
 
 

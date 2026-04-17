@@ -65,6 +65,28 @@ public class CatalogRepository(ApplicationDbContext dbContext) : ICatalogReposit
         return candidates.Count == 0 ? null : candidates[Random.Shared.Next(candidates.Count)];
     }
 
+    public Task<List<QuestionBank>> GetQuestionsByPositionAsync(string positionCode, IEnumerable<string> questionTypes, CancellationToken cancellationToken = default)
+    {
+        var types = questionTypes
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var query = dbContext.QuestionBanks
+            .AsNoTracking()
+            .Where(x => x.IsActive && x.PositionCode == positionCode);
+
+        if (types.Length > 0)
+        {
+            query = query.Where(x => types.Contains(x.Type));
+        }
+
+        return query
+            .OrderBy(x => x.Type)
+            .ThenBy(x => x.CreatedAt)
+            .ToListAsync(cancellationToken);
+    }
+
     public Task<List<LearningResource>> GetLearningResourcesAsync(string? positionCode, IEnumerable<string>? dimensions, int limit, CancellationToken cancellationToken = default)
     {
         var query = dbContext.LearningResources

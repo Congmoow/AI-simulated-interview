@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import logging
+import time
 
-from pydantic import BaseModel, Field
 import httpx
+from pydantic import BaseModel, Field
 
 from app.core.settings import get_settings
 
 logger = logging.getLogger(__name__)
+
+RUNTIME_AI_SETTINGS_TTL_SECONDS = 60.0
 
 
 class RuntimeAiSettings(BaseModel):
@@ -20,12 +23,21 @@ class RuntimeAiSettings(BaseModel):
     system_prompt: str = Field(alias="systemPrompt", default="")
 
 
+_runtime_ai_settings_cache: tuple[float, RuntimeAiSettings | None] | None = None
+_backend_client = httpx.Client(timeout=10.0, http2=False)
+
+
+def clear_runtime_ai_settings_cache() -> None:
+    global _runtime_ai_settings_cache
+    _runtime_ai_settings_cache = None
+
+
 def _summarize_text(text: str, limit: int = 240) -> str:
     compact = " ".join(text.split())
     return compact[:limit]
 
 
-def fetch_runtime_ai_settings() -> RuntimeAiSettings | None:
+def _fetch_runtime_ai_settings_uncached() -> RuntimeAiSettings | None:
     settings = get_settings()
     headers: dict[str, str] = {}
     if settings.api_key:
@@ -33,14 +45,13 @@ def fetch_runtime_ai_settings() -> RuntimeAiSettings | None:
 
     url = f"{settings.backend_url.rstrip('/')}/api/v1/internal/ai/runtime-settings"
     try:
-        with httpx.Client(timeout=10.0, http2=False) as client:
-            response = client.get(url, headers=headers)
-            response.raise_for_status()
-            payload = response.json()
+        response = _backend_client.get(url, headers=headers)
+        response.raise_for_status()
+        payload = response.json()
     except httpx.HTTPStatusError as exc:
         response_body = _summarize_text(exc.response.text) if exc.response is not None else ""
         logger.exception(
-            "读取 runtime settings 失败：upstream_status_code=%s exception_type=%s response_body_snippet=%s",
+            "cache_refresh_failed upstream_status_code=%s exception_type=%s response_body_snippet=%s",
             exc.response.status_code if exc.response is not None else "n/a",
             exc.__class__.__name__,
             response_body,
@@ -48,14 +59,14 @@ def fetch_runtime_ai_settings() -> RuntimeAiSettings | None:
         raise
     except httpx.RequestError as exc:
         logger.exception(
-            "读取 runtime settings 请求失败：backend_url=%s exception_type=%s",
+            "cache_refresh_failed backend_url=%s exception_type=%s",
             settings.backend_url,
             exc.__class__.__name__,
         )
         raise
     except Exception as exc:
         logger.exception(
-            "解析 runtime settings 失败：backend_url=%s exception_type=%s",
+            "cache_refresh_failed backend_url=%s exception_type=%s",
             settings.backend_url,
             exc.__class__.__name__,
         )
@@ -63,14 +74,32 @@ def fetch_runtime_ai_settings() -> RuntimeAiSettings | None:
 
     data = payload.get("data")
     if not data:
-        logger.warning("runtime settings 读取成功但 data 为空：backend_url=%s", settings.backend_url)
+        logger.warning("runtime_settings_empty backend_url=%s", settings.backend_url)
         return None
 
     runtime_settings = RuntimeAiSettings.model_validate(data)
     logger.info(
-        "runtime settings 读取成功：provider=%s base_url=%s model=%s",
+        "runtime_settings_refreshed provider=%s base_url=%s model=%s",
         runtime_settings.provider,
         runtime_settings.base_url,
         runtime_settings.model,
     )
+    return runtime_settings
+
+
+def fetch_runtime_ai_settings(force_refresh: bool = False) -> RuntimeAiSettings | None:
+    global _runtime_ai_settings_cache
+
+    now = time.monotonic()
+    if not force_refresh and _runtime_ai_settings_cache is not None:
+        expires_at, cached_value = _runtime_ai_settings_cache
+        if now < expires_at:
+            logger.info("cache_hit ttl_seconds=%s", int(expires_at - now))
+            return cached_value
+        logger.info("cache_expired age_seconds=%s", int(now - (expires_at - RUNTIME_AI_SETTINGS_TTL_SECONDS)))
+    else:
+        logger.info("cache_miss")
+
+    runtime_settings = _fetch_runtime_ai_settings_uncached()
+    _runtime_ai_settings_cache = (now + RUNTIME_AI_SETTINGS_TTL_SECONDS, runtime_settings)
     return runtime_settings

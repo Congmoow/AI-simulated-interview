@@ -5,5 +5,5 @@ export function Card({
   className,
   ...props
 }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("surface-card p-6", className)} {...props} />;
+  return <div className={cn("surface-card card-padding", className)} {...props} />;
 }

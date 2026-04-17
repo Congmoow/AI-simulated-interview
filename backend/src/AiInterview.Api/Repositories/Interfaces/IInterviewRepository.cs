@@ -8,9 +8,17 @@ public interface IInterviewRepository
 
     Task AddRoundAsync(InterviewRound round, CancellationToken cancellationToken = default);
 
+    Task AddMessageAsync(InterviewMessage message, CancellationToken cancellationToken = default);
+
     Task<Interview?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
     Task<Interview?> GetByIdWithDetailsAsync(Guid id, CancellationToken cancellationToken = default);
+
+    Task<List<InterviewMessage>> GetMessagesAsync(Guid interviewId, CancellationToken cancellationToken = default);
+
+    Task<int> GetNextMessageSequenceAsync(Guid interviewId, CancellationToken cancellationToken = default);
+
+    Task<List<Guid>> GetInterviewIdsPendingReportGenerationAsync(CancellationToken cancellationToken = default);
 
     Task<List<Interview>> GetUserHistoryAsync(Guid userId, string? positionCode, string? status, DateOnly? startDate, DateOnly? endDate, int page, int pageSize, CancellationToken cancellationToken = default);
 
