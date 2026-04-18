@@ -9,7 +9,7 @@ Docs/
 docs/
 
 # 本地工具与缓存
-.codex
+.codex/
 .worktrees/
 .npm-cache/
 .windsurf/
