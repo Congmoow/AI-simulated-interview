@@ -40,36 +40,25 @@ public class InterviewService(
             throw new AppException(ErrorCodes.QuestionNotFound, "当前岗位暂无可用题目", StatusCodes.Status404NotFound);
         }
 
-        var limits = new InterviewAiLimitsDto
+        var localSelectedQuestion = ResolveSelectedQuestion(questionBank, null, []);
+        var openingPayload = new StartInterviewAiResponse
         {
-            MaxMainQuestions = totalRounds,
-            CurrentMainQuestionCount = 0,
-            MaxMessages = DefaultMaxMessages,
-            CurrentMessageCount = 0,
-            MaxDurationMinutes = DefaultMaxDurationMinutes,
-            CurrentDurationMinutes = 0
+            Action = AiInterviewActions.Question,
+            MessageType = InterviewMessageTypes.Opening,
+            Content = BuildOpeningQuestionContent(position.Code, localSelectedQuestion.Content),
+            SelectedQuestionId = localSelectedQuestion.Id,
+            Metadata = new Dictionary<string, object>
+            {
+                ["selectedQuestionTitle"] = localSelectedQuestion.Title
+            }
         };
 
-        var aiMessage = await aiIntegrationService.StartInterviewAsync(new StartInterviewAiRequest
-        {
-            InterviewId = interviewId,
-            PositionCode = position.Code,
-            PositionName = position.Name,
-            InterviewMode = string.IsNullOrWhiteSpace(request.InterviewMode) ? InterviewModes.Standard : request.InterviewMode,
-            QuestionTypes = selectedQuestionTypes,
-            QuestionBank = questionBank.Select(ToCandidateQuestion).ToList(),
-            AskedQuestionIds = [],
-            RecentMessages = [],
-            HistoryAnswerSummaries = [],
-            Limits = limits
-        }, cancellationToken);
-
-        if (!string.Equals(aiMessage.Action, AiInterviewActions.Question, StringComparison.Ordinal))
+        if (!string.Equals(openingPayload.Action, AiInterviewActions.Question, StringComparison.Ordinal))
         {
             throw new AppException(ErrorCodes.ServiceUnavailable, "首条面试消息必须是主问题", StatusCodes.Status503ServiceUnavailable);
         }
 
-        var selectedQuestion = ResolveSelectedQuestion(questionBank, aiMessage.SelectedQuestionId, []);
+        var selectedQuestion = ResolveSelectedQuestion(questionBank, openingPayload.SelectedQuestionId, []);
         var interview = new Interview
         {
             Id = interviewId,
@@ -93,11 +82,11 @@ public class InterviewService(
         {
             InterviewId = interview.Id,
             Role = InterviewMessageRoles.Assistant,
-            MessageType = string.IsNullOrWhiteSpace(aiMessage.MessageType) ? InterviewMessageTypes.Opening : aiMessage.MessageType,
-            Content = aiMessage.Content,
+            MessageType = string.IsNullOrWhiteSpace(openingPayload.MessageType) ? InterviewMessageTypes.Opening : openingPayload.MessageType,
+            Content = openingPayload.Content,
             RelatedQuestionId = selectedQuestion.Id,
             Sequence = 1,
-            Metadata = ApplicationMapper.SerializeObject(aiMessage.Metadata)
+            Metadata = ApplicationMapper.SerializeObject(openingPayload.Metadata)
         };
 
         var round = new InterviewRound
@@ -107,8 +96,8 @@ public class InterviewService(
             QuestionId = selectedQuestion.Id,
             QuestionTitle = selectedQuestion.Title,
             QuestionType = selectedQuestion.Type,
-            QuestionContent = aiMessage.Content,
-            Context = ApplicationMapper.SerializeObject(aiMessage.Metadata)
+            QuestionContent = openingPayload.Content,
+            Context = ApplicationMapper.SerializeObject(openingPayload.Metadata)
         };
 
         interview.Messages.Add(openingMessage);
@@ -705,6 +694,34 @@ public class InterviewService(
             .Select(item => $"第{item.RoundNumber}题：{item.QuestionTitle}；回答：{item.UserAnswer}")
             .TakeLast(5)
             .ToList();
+    }
+
+    private static string BuildOpeningQuestionContent(string positionCode, string? questionContent)
+    {
+        if (!string.IsNullOrWhiteSpace(questionContent))
+        {
+            return questionContent.Trim();
+        }
+
+        var normalized = positionCode.ToLowerInvariant();
+        if (normalized.Contains("frontend", StringComparison.Ordinal)
+            || normalized.Contains("react", StringComparison.Ordinal)
+            || normalized.Contains("vue", StringComparison.Ordinal)
+            || normalized.Contains("web", StringComparison.Ordinal))
+        {
+            return "璇峰厛浠嬬粛涓€涓笌浣犵洰鏍囧矖浣嶆渶鐩稿叧鐨勫墠绔」鐩紝閲嶇偣璇存槑鍦烘櫙銆佽亴璐ｅ拰缁撴灉銆?";
+        }
+
+        if (normalized.Contains("backend", StringComparison.Ordinal)
+            || normalized.Contains("java", StringComparison.Ordinal)
+            || normalized.Contains("golang", StringComparison.Ordinal)
+            || normalized.Contains("python", StringComparison.Ordinal)
+            || normalized.Contains("service", StringComparison.Ordinal))
+        {
+            return "璇峰厛浠嬬粛涓€涓笌浣犵洰鏍囧矖浣嶆渶鐩稿叧鐨勫悗绔」鐩紝閲嶇偣璇存槑鍦烘櫙銆佽亴璐ｅ拰缁撴灉銆?";
+        }
+
+        return "璇峰厛鍋氫竴涓畝鐭嚜鎴戜粙缁嶏紝骞惰鏄庝竴娈典笌浣犵洰鏍囧矖浣嶆渶鐩稿叧鐨勯」鐩粡鍘嗐€?";
     }
 
     private static InterviewAiLimitsDto BuildLimits(Interview interview, int messageCount)

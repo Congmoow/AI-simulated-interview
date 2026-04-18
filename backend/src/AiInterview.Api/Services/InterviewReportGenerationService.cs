@@ -430,23 +430,29 @@ public sealed class InterviewReportGenerationService(
     {
         return json.Strengths is { Length: > 0 }
             && json.Weaknesses is { Length: > 0 }
-            && json.Suggestions is { Length: > 0 }
-            && !string.IsNullOrWhiteSpace(json.Summary);
+            && (json.Suggestions is { Length: > 0 } || json.LearningSuggestions is { Length: > 0 })
+            && (!string.IsNullOrWhiteSpace(json.Summary) || !string.IsNullOrWhiteSpace(json.ExecutiveSummary));
     }
 
     private static ReportAiResponse MapToReportAiResponse(LlmReportJson json)
     {
         return new ReportAiResponse
         {
-            ExecutiveSummary = json.Summary ?? string.Empty,
+            ExecutiveSummary = !string.IsNullOrWhiteSpace(json.ExecutiveSummary)
+                ? json.ExecutiveSummary
+                : json.Summary ?? string.Empty,
             Strengths = json.Strengths ?? [],
             Weaknesses = json.Weaknesses ?? [],
-            LearningSuggestions = json.Suggestions ?? [],
-            DetailedAnalysis = json.Dimensions is not null
-                ? json.Dimensions.ToDictionary(k => k.Key, v => (object)v.Value)
-                : [],
-            TrainingPlan = [],
-            NextInterviewFocus = [],
+            LearningSuggestions = json.LearningSuggestions is { Length: > 0 }
+                ? json.LearningSuggestions
+                : json.Suggestions ?? [],
+            DetailedAnalysis = json.DetailedAnalysis is not null
+                ? json.DetailedAnalysis.ToDictionary(k => k.Key, v => (object)v.Value)
+                : json.Dimensions is not null
+                    ? json.Dimensions.ToDictionary(k => k.Key, v => (object)v.Value)
+                    : [],
+            TrainingPlan = json.TrainingPlan?.Cast<object>().ToArray() ?? [],
+            NextInterviewFocus = json.NextInterviewFocus ?? [],
             ModelVersion = "llm-v1"
         };
     }
@@ -457,11 +463,21 @@ public sealed class InterviewReportGenerationService(
 
         public Dictionary<string, JsonElement>? Dimensions { get; init; }
 
+        public string? ExecutiveSummary { get; init; }
+
         public string[]? Strengths { get; init; }
 
         public string[]? Weaknesses { get; init; }
 
         public string[]? Suggestions { get; init; }
+
+        public Dictionary<string, JsonElement>? DetailedAnalysis { get; init; }
+
+        public string[]? LearningSuggestions { get; init; }
+
+        public JsonElement[]? TrainingPlan { get; init; }
+
+        public string[]? NextInterviewFocus { get; init; }
 
         public string? Summary { get; init; }
     }
