@@ -27,7 +27,7 @@ const DOT_CLASS_NAMES: Record<InterviewSystemTone, string> = {
 interface InterviewSystemNoticeProps {
   body: string;
   tone?: InterviewSystemTone;
-  displayStyle?: "card" | "plain";
+  displayStyle?: "card" | "plain" | "inline";
   actionLabel?: string;
   actionKey?: InterviewSystemAction;
   onAction?: (action: InterviewSystemAction) => void;
@@ -47,6 +47,27 @@ export function InterviewSystemNotice({
         <p className="text-center text-[13px] leading-6 text-[var(--token-color-text-tertiary)]">
           {body}
         </p>
+      </div>
+    );
+  }
+
+  if (displayStyle === "inline") {
+    return (
+      <div className="flex justify-center py-2">
+        <div className="interview-system-notice-inline flex flex-wrap items-center justify-center gap-3 text-sm leading-6">
+          <span className={cn("h-2.5 w-2.5 rounded-full", DOT_CLASS_NAMES[tone])} />
+          <p className="text-center text-[var(--token-color-text-secondary)]">{body}</p>
+          {actionLabel && actionKey ? (
+            <Button
+              className="!px-4 !py-2 text-xs"
+              onClick={() => onAction?.(actionKey)}
+              type="button"
+              variant="secondary"
+            >
+              {actionLabel}
+            </Button>
+          ) : null}
+        </div>
       </div>
     );
   }

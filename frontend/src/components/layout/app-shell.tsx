@@ -54,7 +54,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           )}
         >
           <div className="flex items-center gap-2 px-1 pt-1 text-[length:var(--token-font-size-sm)]">
-            <span className="text-[var(--token-color-text-tertiary)]">Simulate OS</span>
+            <span className="font-semibold text-[var(--token-color-text-tertiary)]">APTAI</span>
             <span className="text-[var(--token-color-text-tertiary)]">/</span>
             <span className="font-medium text-[var(--token-color-text-secondary)]">
               {getPageLabel(pathname)}

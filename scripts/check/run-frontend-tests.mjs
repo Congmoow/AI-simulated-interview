@@ -62,7 +62,7 @@ const result = spawnSync(
   process.execPath,
   [tsxCliPath, '--test', ...testFiles],
   {
-    cwd: repoRoot,
+    cwd: frontendDir,
     stdio: 'inherit',
   },
 );

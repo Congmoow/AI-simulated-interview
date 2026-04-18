@@ -142,15 +142,13 @@ export default function ReportIndexPage() {
                   {item.positionName}
                 </h3>
                 <p className="text-caption">
-                  创建于 {formatDateTime(item.createdAt)}
-                  {item.completedAt ? ` · 完成于 ${formatDateTime(item.completedAt)}` : ""}
+                  {formatDateTime(item.createdAt)}{item.completedAt ? ` ~ ${formatDateTime(item.completedAt)}` : ""}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <span className="chip-info chip-info--primary">
                   {INTERVIEW_MODE_LABELS[item.interviewMode] ?? item.interviewMode}
                 </span>
-                <span className="chip-info">共 {item.roundCount} 轮</span>
                 <span className="chip-info">时长 {formatDuration(item.duration)}</span>
               </div>
             </div>

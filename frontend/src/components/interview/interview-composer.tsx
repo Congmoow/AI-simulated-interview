@@ -35,7 +35,7 @@ export function InterviewComposer({
   onKeyDown,
 }: InterviewComposerProps) {
   return (
-    <div className="shrink-0 border-t border-[rgba(15,23,42,0.08)] bg-[rgba(255,255,255,0.96)] px-3 pb-3 pt-3 backdrop-blur">
+    <div className="shrink-0 bg-[rgba(255,255,255,0.96)] px-3 pb-3 pt-3 backdrop-blur">
       <div className="mx-auto w-full max-w-[780px] space-y-1">
         {draftLabel || (canRestoreDraft && onRestoreDraft) || statusText || hintText ? (
           <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-[12px] text-[var(--token-color-text-secondary)]">

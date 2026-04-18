@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from app.schemas.document import ChunkResult, ProcessDocumentRequest, ProcessDocumentResponse
 from app.schemas.interview import (
     AnswerInterviewRequest,
@@ -20,6 +22,19 @@ from app.schemas.report import GenerateReportRequest, GenerateReportResponse
 
 
 class MockProvider:
+    _GENERIC_ACKNOWLEDGEMENTS = {
+        "hi",
+        "hello",
+        "hey",
+        "你好",
+        "您好",
+        "你好啊",
+        "嗨",
+        "哈喽",
+        "在吗",
+        "在么",
+    }
+
     def start_interview(self, request: StartInterviewRequest) -> StartInterviewResponse:
         question = next(
             (item for item in request.question_bank if item.question_id not in set(request.asked_question_ids)),
@@ -42,6 +57,20 @@ class MockProvider:
             None,
         )
         normalized_answer = latest_user_message.content.strip() if latest_user_message is not None else ""
+        compact_answer = self._normalize_answer(normalized_answer)
+
+        if current_question is not None and self._is_generic_acknowledgement(compact_answer):
+            return AnswerInterviewResponse(
+                action="follow_up",
+                messageType="follow_up",
+                content=(
+                    f"你刚才的回答还没有进入当前问题。请先围绕当前问题回答："
+                    f"{current_question.asked_content}。"
+                    "请至少补充真实项目背景、你的职责、系统规模和你做过的优化。"
+                ),
+                suggestions=["先按背景-职责-规模-优化展开"],
+                metadata={"anchorQuestionId": str(current_related_question_id) if current_related_question_id else ""},
+            )
 
         if current_question is not None and current_question.follow_up_count == 0 and len(normalized_answer) < 120:
             return AnswerInterviewResponse(
@@ -73,6 +102,14 @@ class MockProvider:
             suggestions=["结合真实经历回答"],
             metadata={"selectedQuestionTitle": next_question.title},
         )
+
+    @classmethod
+    def _normalize_answer(cls, answer: str) -> str:
+        return re.sub(r"[\s\W_]+", "", answer.lower())
+
+    @classmethod
+    def _is_generic_acknowledgement(cls, answer: str) -> bool:
+        return answer in cls._GENERIC_ACKNOWLEDGEMENTS
 
     def score_interview(self, request: ScoreInterviewRequest) -> ScoreInterviewResponse:
         answered_rounds = [round_item for round_item in request.rounds if round_item.answer]

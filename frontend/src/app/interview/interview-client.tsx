@@ -13,6 +13,7 @@ import { InterviewComposer } from "@/components/interview/interview-composer";
 import { InterviewMessageList } from "@/components/interview/interview-message-list";
 import { type InterviewTimelineMessage, type InterviewUserMessageStatus } from "@/components/interview/interview-message-item";
 import { type InterviewSystemAction, type InterviewSystemTone } from "@/components/interview/interview-system-notice";
+import { InterviewModeSwitch } from "@/components/interview/interview-mode-switch";
 import { InterviewTopBar } from "@/components/interview/interview-top-bar";
 import { RequireLoginState } from "@/components/auth/require-login-state";
 import { useRequireAuth } from "@/hooks/use-require-auth";
@@ -28,6 +29,7 @@ import {
   buildInterviewTimelineMessages,
   hasPersistedPendingAnswer,
 } from "@/features/interview/message-flow";
+import { shouldAdvanceElapsedTimer } from "@/features/interview/interview-timer";
 import { buildRealtimeInterviewMessages } from "@/features/interview/realtime-message-flow";
 import { getTagIconUrl } from "@/utils/icon-utils";
 import { getRequestErrorMessage } from "@/utils/request-error";
@@ -92,7 +94,7 @@ function createSystemMessage(
   body: string,
   options?: {
     tone?: InterviewSystemTone;
-    displayStyle?: "card" | "plain";
+    displayStyle?: "card" | "plain" | "inline";
     actionKey?: InterviewSystemAction;
     actionLabel?: string;
   },
@@ -430,7 +432,7 @@ export function InterviewClient() {
   }, [interviewId]);
 
   useEffect(() => {
-    if (!detail) {
+    if (!detail || !shouldAdvanceElapsedTimer(detail.status)) {
       return;
     }
     const timer = window.setInterval(() => setNowTick(Date.now()), 1000);
@@ -662,8 +664,9 @@ export function InterviewClient() {
       );
     } else if (isCompleted) {
       messages.push(
-        createSystemMessage("report-ready", "报告已生成，点击查看。", {
+        createSystemMessage("report-ready", "报告已生成", {
           tone: "success",
+          displayStyle: "inline",
           actionKey: "view-report",
           actionLabel: "查看报告",
         }),
@@ -745,8 +748,6 @@ export function InterviewClient() {
       : isReportGenerating
         ? "面试已结束，报告正在生成中。"
         : "请在这里输入你的回答，支持长段落、多点拆解与结构化表达。";
-  const currentRound = detail ? Math.min(detail.currentRound, detail.totalRounds) : 0;
-
   if (!hydrated) {
     return <LoadingState label="正在初始化面试环境..." />;
   }
@@ -788,18 +789,14 @@ export function InterviewClient() {
           <p className="text-caption max-w-[720px] text-[length:var(--token-font-size-lg)]">
             点击岗位卡片后会立即创建面试，并进入新的聊天式面试工作台。
           </p>
-          <div className="flex gap-2">
-            {INTERVIEW_MODE_OPTIONS.map((option) => (
-              <Button
-                key={option.value}
-                onClick={() => setInterviewMode(option.value)}
-                type="button"
-                variant={interviewMode === option.value ? "primary" : "secondary"}
-              >
-                {option.label}
-              </Button>
-            ))}
-          </div>
+          <InterviewModeSwitch
+            onChange={setInterviewMode}
+            options={INTERVIEW_MODE_OPTIONS.map((option) => ({
+              label: option.label,
+              value: option.value,
+            }))}
+            value={interviewMode}
+          />
         </div>
         {error ? <ErrorState description={error} /> : null}
         <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
@@ -831,8 +828,7 @@ export function InterviewClient() {
                     );
                   })}
                 </div>
-                <div className="flex items-center justify-between">
-                  <p className="text-caption">题量 {position.questionCount}</p>
+                <div className="flex items-center justify-end">
                   <Button
                     disabled={Boolean(startingPositionCode)}
                     onClick={() =>
@@ -868,13 +864,11 @@ export function InterviewClient() {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <InterviewTopBar
-        currentRound={currentRound}
         elapsedLabel={elapsedLabel}
         finishDisabled={finishDisabled}
         finishLabel={finishLabel}
         onFinish={() => void handleFinishInterview()}
         positionName={detail.positionName}
-        totalRounds={detail.totalRounds}
       />
       <div className="shrink-0 px-4 pt-4">{error ? <ErrorState description={error} /> : null}</div>
       <InterviewMessageList messages={messages} onAction={handleMessageAction} />

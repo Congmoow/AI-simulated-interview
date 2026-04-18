@@ -37,7 +37,7 @@ export function SideNav() {
       <aside className="sticky top-4 flex h-[calc(100vh-2rem)] w-full max-w-[288px] flex-col justify-between overflow-y-auto p-6">
         <div className="space-y-6">
           <div className="space-y-3">
-            <span className="section-label">AI Interview OS</span>
+            <span className="display-title text-[var(--token-color-primary)]">APTAI</span>
             <div>
               <p className="section-title">面试演练台</p>
               <p className="text-caption mt-2">
