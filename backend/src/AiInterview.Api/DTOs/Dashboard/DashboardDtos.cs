@@ -4,6 +4,7 @@ public class DashboardInsightsDto
 {
     public DashboardOverviewDto Overview { get; set; } = new();
     public DashboardScopeDto Scope { get; set; } = new();
+    public string HeroSummary { get; set; } = string.Empty;
     public DashboardStrengthItemDto[] Strengths { get; set; } = [];
     public DashboardWeaknessItemDto[] Weaknesses { get; set; } = [];
     public DashboardAbilityDimension6Dto[] AbilityDimensions6 { get; set; } = [];

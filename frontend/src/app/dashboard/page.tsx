@@ -33,6 +33,11 @@ export default function DashboardPage() {
     [insights],
   );
 
+  const displayHeroSummary = useMemo(
+    () => (insights ? insights.heroSummary || heroSummary : heroSummary),
+    [heroSummary, insights],
+  );
+
   useEffect(() => {
     if (!hydrated) {
       return;
@@ -92,7 +97,7 @@ export default function DashboardPage() {
           你好，{user?.username ?? "同学"}
         </h1>
         <p className="text-caption max-w-page text-lg">
-          {heroSummary}
+          {displayHeroSummary}
         </p>
       </section>
 

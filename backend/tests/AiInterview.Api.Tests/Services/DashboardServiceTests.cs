@@ -3,7 +3,9 @@ using AiInterview.Api.DTOs.Reports;
 using AiInterview.Api.Models.Entities;
 using AiInterview.Api.Repositories.Interfaces;
 using AiInterview.Api.Services;
+using AiInterview.Api.Services.Interfaces;
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace AiInterview.Api.Tests.Services;
 
@@ -208,8 +210,264 @@ sealed class InMemoryDashboardReportRepository : IReportRepository
     public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 }
 
+sealed class DashboardStubAiProvider : IAiProvider
+{
+    public string ResponseText { get; set; } = "这是 AI 生成的个人画像总结。";
+
+    public List<AiChatRequest> Requests { get; } = [];
+
+    public Task<string> ChatCompleteAsync(AiChatRequest request, CancellationToken cancellationToken = default)
+    {
+        Requests.Add(request);
+        return Task.FromResult(ResponseText);
+    }
+}
+
+sealed class DashboardStubAiSettingsService : IAiSettingsService
+{
+    public IAiProvider? Provider { get; set; }
+
+    public Task<DTOs.Admin.AiSettingsDto> GetSettingsAsync(CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new DTOs.Admin.AiSettingsDto
+        {
+            Provider = "openai_compatible",
+            BaseUrl = "https://example.com/v1",
+            Model = "test-model",
+            Temperature = 0.2m,
+            MaxTokens = 400,
+            IsEnabled = Provider is not null,
+            SystemPrompt = "test system prompt"
+        });
+    }
+
+    public Task<DTOs.Admin.AiSettingsDto> UpdateSettingsAsync(DTOs.Admin.UpdateAiSettingsRequest request, string updatedBy, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+
+    public Task<DTOs.Admin.AiTestResult> TestConnectionAsync(DTOs.Admin.TestAiConnectionRequest? request, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+
+    public Task<IAiProvider?> BuildProviderAsync(CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(Provider);
+    }
+
+    public Task<DTOs.Admin.AiRuntimeSettingsDto?> GetRuntimeSettingsAsync(CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<DTOs.Admin.AiRuntimeSettingsDto?>(null);
+    }
+}
+
 public class DashboardServiceTests
 {
+    [Fact]
+    public async Task GetInsightsAsync_ShouldReturnAiGeneratedHeroSummary_WhenProviderIsAvailable()
+    {
+        var userId = Guid.NewGuid();
+        var reportRepository = new InMemoryDashboardReportRepository();
+        var interviewRepository = new InMemoryDashboardInterviewRepository();
+        var aiProvider = new DashboardStubAiProvider
+        {
+            ResponseText = "AI 判断你目前表达稳定、结构清晰，但项目深挖仍需继续加强。"
+        };
+
+        SeedInterview(interviewRepository, userId, "web-frontend", "2026-04-01T08:00:00Z");
+        SeedReport(
+            reportRepository,
+            userId,
+            "web-frontend",
+            "Web 前端开发工程师",
+            "2026-04-01T08:00:00Z",
+            86m,
+            strengths: ["回答结构清晰，能先给结论再展开说明。"],
+            weaknesses: ["底层原理解释不够深入。"],
+            suggestions: ["针对薄弱点补一轮底层原理梳理。"],
+            dimensionScores: CreateDimensionScores(
+                clarity: 90,
+                fluency: 88,
+                technicalAccuracy: 84,
+                knowledgeDepth: 72,
+                projectAuthenticity: 76,
+                logicalThinking: 85,
+                confidence: 80,
+                positionMatch: 83));
+
+        var service = CreateService(
+            userId,
+            "web-frontend",
+            "Web 前端开发工程师",
+            interviewRepository,
+            reportRepository,
+            new DashboardStubAiSettingsService
+            {
+                Provider = aiProvider
+            });
+
+        var result = await service.GetInsightsAsync(userId);
+        var heroSummaryProperty = result.GetType().GetProperty("HeroSummary");
+
+        heroSummaryProperty.Should().NotBeNull();
+        heroSummaryProperty!.GetValue(result).Should().Be("AI 判断你目前表达稳定、结构清晰，但项目深挖仍需继续加强。");
+        aiProvider.Requests.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task GetInsightsAsync_ShouldUseAiAggregatedStrengthsAndWeaknesses_WhenProviderIsAvailable()
+    {
+        var userId = Guid.NewGuid();
+        var reportRepository = new InMemoryDashboardReportRepository();
+        var interviewRepository = new InMemoryDashboardInterviewRepository();
+        var aiProvider = new DashboardStubAiProvider
+        {
+            ResponseText =
+                """
+                {
+                  "heroSummary": "AI 判断你表达稳定，但项目深挖和底层原理还需要继续补强。",
+                  "strengths": [
+                    {
+                      "title": "表达稳定",
+                      "description": "你在最近几次面试里输出节奏稳定，能够比较自然地把核心观点讲清楚。",
+                      "evidenceSamples": ["回答主线清楚，表达自然。", "沟通顺畅，信息传递完整。"],
+                      "reportIndexes": [1, 2]
+                    }
+                  ],
+                  "weaknesses": [
+                    {
+                      "title": "项目深挖不足",
+                      "description": "你能讲清项目背景，但在技术细节、权衡和复盘上还不够深入。",
+                      "typicalBehaviors": ["只讲做了什么，较少展开为什么这样做。", "谈到难点时细节支撑不足。"],
+                      "suggestion": "把最近项目按“背景-目标-方案-难点-结果-反思”重讲一遍。",
+                      "reportIndexes": [1]
+                    }
+                  ],
+                  "nextActions": [
+                    "把最近项目按“背景-目标-方案-难点-结果-反思”重讲一遍。",
+                    "针对底层原理题补一轮机制和边界条件。"
+                  ]
+                }
+                """
+        };
+
+        SeedInterview(interviewRepository, userId, "web-frontend", "2026-04-01T08:00:00Z");
+        SeedInterview(interviewRepository, userId, "web-frontend", "2026-04-02T08:00:00Z");
+        var reportA = SeedReport(
+            reportRepository,
+            userId,
+            "web-frontend",
+            "Web 前端开发工程师",
+            "2026-04-01T08:00:00Z",
+            84m,
+            strengths: ["回答结构清晰，能先给结论再展开说明。"],
+            weaknesses: ["项目细节展开还不够深入。"],
+            suggestions: ["把最近项目按背景-目标-方案-难点-结果-反思重讲一遍。"],
+            dimensionScores: CreateDimensionScores(
+                clarity: 88,
+                fluency: 87,
+                technicalAccuracy: 80,
+                knowledgeDepth: 72,
+                projectAuthenticity: 75,
+                logicalThinking: 84,
+                confidence: 81,
+                positionMatch: 82));
+        var reportB = SeedReport(
+            reportRepository,
+            userId,
+            "web-frontend",
+            "Web 前端开发工程师",
+            "2026-04-02T08:00:00Z",
+            86m,
+            strengths: ["表达自然，沟通顺畅。"],
+            weaknesses: ["底层原理解释不够深入。"],
+            suggestions: ["针对底层原理题补一轮机制和边界条件。"],
+            dimensionScores: CreateDimensionScores(
+                clarity: 90,
+                fluency: 89,
+                technicalAccuracy: 82,
+                knowledgeDepth: 74,
+                projectAuthenticity: 76,
+                logicalThinking: 85,
+                confidence: 82,
+                positionMatch: 84));
+
+        var service = CreateService(
+            userId,
+            "web-frontend",
+            "Web 前端开发工程师",
+            interviewRepository,
+            reportRepository,
+            new DashboardStubAiSettingsService
+            {
+                Provider = aiProvider
+            });
+
+        var result = await service.GetInsightsAsync(userId);
+
+        result.HeroSummary.Should().Be("AI 判断你表达稳定，但项目深挖和底层原理还需要继续补强。");
+        result.Strengths.Should().ContainSingle();
+        result.Strengths[0].Key.Should().Be("ai_strength_1");
+        result.Strengths[0].Title.Should().Be("表达稳定");
+        result.Strengths[0].EvidenceCount.Should().Be(2);
+        result.Strengths[0].Sources.Select(x => x.ReportId).Should().Contain([reportA.Id, reportB.Id]);
+        result.Strengths[0].LastSeenAt.Should().Be(reportB.GeneratedAt);
+
+        result.Weaknesses.Should().ContainSingle();
+        result.Weaknesses[0].Key.Should().Be("ai_weakness_1");
+        result.Weaknesses[0].Title.Should().Be("项目深挖不足");
+        result.Weaknesses[0].Suggestion.Should().Be("把最近项目按“背景-目标-方案-难点-结果-反思”重讲一遍。");
+        result.Weaknesses[0].TypicalBehaviors.Should().Contain("只讲做了什么，较少展开为什么这样做。");
+        result.Weaknesses[0].EvidenceCount.Should().Be(1);
+        result.Weaknesses[0].Sources.Select(x => x.ReportId).Should().ContainSingle().Which.Should().Be(reportA.Id);
+        result.NextActions.Should().ContainInOrder(
+            "把最近项目按“背景-目标-方案-难点-结果-反思”重讲一遍。",
+            "针对底层原理题补一轮机制和边界条件。");
+    }
+
+    [Fact]
+    public async Task GetInsightsAsync_ShouldFallbackToRuleSummary_WhenProviderIsUnavailable()
+    {
+        var userId = Guid.NewGuid();
+        var reportRepository = new InMemoryDashboardReportRepository();
+        var interviewRepository = new InMemoryDashboardInterviewRepository();
+
+        SeedInterview(interviewRepository, userId, "web-frontend", "2026-04-01T08:00:00Z");
+        SeedReport(
+            reportRepository,
+            userId,
+            "web-frontend",
+            "Web 前端开发工程师",
+            "2026-04-01T08:00:00Z",
+            86m,
+            strengths: ["回答结构清晰，能先给结论再展开说明。"],
+            weaknesses: ["底层原理解释不够深入。"],
+            suggestions: ["针对薄弱点补一轮底层原理梳理。"],
+            dimensionScores: CreateDimensionScores(
+                clarity: 90,
+                fluency: 88,
+                technicalAccuracy: 84,
+                knowledgeDepth: 72,
+                projectAuthenticity: 76,
+                logicalThinking: 85,
+                confidence: 80,
+                positionMatch: 83));
+
+        var service = CreateService(
+            userId,
+            "web-frontend",
+            "Web 前端开发工程师",
+            interviewRepository,
+            reportRepository,
+            new DashboardStubAiSettingsService());
+
+        var result = await service.GetInsightsAsync(userId);
+        var heroSummaryProperty = result.GetType().GetProperty("HeroSummary");
+        var heroSummary = heroSummaryProperty?.GetValue(result) as string;
+
+        heroSummaryProperty.Should().NotBeNull();
+        heroSummary.Should().NotBeNullOrWhiteSpace();
+        heroSummary.Should().Contain("回答结构化");
+        heroSummary.Should().Contain("底层原理不够深入");
+    }
+
     [Fact]
     public async Task GetInsightsAsync_ShouldPreferTargetPositionScope_WhenTargetReportsExist()
     {
@@ -575,28 +833,48 @@ public class DashboardServiceTests
         string? targetPositionCode,
         string? targetPositionName,
         InMemoryDashboardInterviewRepository interviewRepository,
-        InMemoryDashboardReportRepository reportRepository)
+        InMemoryDashboardReportRepository reportRepository,
+        DashboardStubAiSettingsService? aiSettingsService = null)
     {
-        return new DashboardService(
-            new InMemoryDashboardUserRepository
+        var userRepository = new InMemoryDashboardUserRepository
+        {
+            User = new User
             {
-                User = new User
-                {
-                    Id = userId,
-                    Username = "zhangsan",
-                    Email = "zhangsan@example.com",
-                    TargetPositionCode = targetPositionCode,
-                    TargetPosition = targetPositionCode is null
-                        ? null
-                        : new Position
-                        {
-                            Code = targetPositionCode,
-                            Name = targetPositionName ?? targetPositionCode
-                        }
-                }
-            },
-            interviewRepository,
-            reportRepository);
+                Id = userId,
+                Username = "zhangsan",
+                Email = "zhangsan@example.com",
+                TargetPositionCode = targetPositionCode,
+                TargetPosition = targetPositionCode is null
+                    ? null
+                    : new Position
+                    {
+                        Code = targetPositionCode,
+                        Name = targetPositionName ?? targetPositionCode
+                    }
+            }
+        };
+
+        var constructor = typeof(DashboardService).GetConstructors().Single();
+        var parameters = constructor.GetParameters();
+
+        return parameters.Length switch
+        {
+            3 => (DashboardService)constructor.Invoke(
+                [
+                    userRepository,
+                    interviewRepository,
+                    reportRepository
+                ]),
+            5 => (DashboardService)constructor.Invoke(
+                [
+                    userRepository,
+                    interviewRepository,
+                    reportRepository,
+                    aiSettingsService ?? new DashboardStubAiSettingsService(),
+                    NullLogger<DashboardService>.Instance
+                ]),
+            _ => throw new NotSupportedException($"Unexpected DashboardService constructor parameter count: {parameters.Length}")
+        };
     }
 
     private static void SeedInterview(

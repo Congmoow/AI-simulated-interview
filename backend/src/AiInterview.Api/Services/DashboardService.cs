@@ -6,16 +6,54 @@ using AiInterview.Api.Middleware;
 using AiInterview.Api.Models.Entities;
 using AiInterview.Api.Repositories.Interfaces;
 using AiInterview.Api.Services.Interfaces;
+using System.Text;
+using System.Text.Json;
 
 namespace AiInterview.Api.Services;
 
 public class DashboardService(
     IUserRepository userRepository,
     IInterviewRepository interviewRepository,
-    IReportRepository reportRepository) : IDashboardService
+    IReportRepository reportRepository,
+    IAiSettingsService aiSettingsService,
+    ILogger<DashboardService> logger) : IDashboardService
 {
     private const int RecentTrendLimit = 10;
     private const int SourceLimit = 3;
+    private const int ReportEvidenceLimit = 4;
+    private const int InsightItemLimit = 3;
+    private const string DashboardInsightsSystemPrompt =
+        """
+        你是一名中文求职辅导顾问。
+        请根据给定的面试画像信息，输出一个 JSON 对象，不要输出任何 JSON 以外的内容。
+        JSON 结构必须为：
+        {
+          "heroSummary": "1 到 2 句、直接面向候选人的总结",
+          "strengths": [
+            {
+              "title": "强项标题",
+              "description": "强项描述",
+              "evidenceSamples": ["证据摘要 1", "证据摘要 2"],
+              "reportIndexes": [1, 2]
+            }
+          ],
+          "weaknesses": [
+            {
+              "title": "短板标题",
+              "description": "短板描述",
+              "typicalBehaviors": ["典型表现 1", "典型表现 2"],
+              "suggestion": "下一步建议",
+              "reportIndexes": [1]
+            }
+          ],
+          "nextActions": ["动作 1", "动作 2", "动作 3"]
+        }
+        要求：
+        1. strengths 和 weaknesses 各返回 1 到 3 项。
+        2. reportIndexes 只能引用输入里出现的报告编号。
+        3. 输出必须具体、自然、可执行，不能空泛。
+        4. 不要编造输入中不存在的证据。
+        """;
 
     public async Task<DashboardInsightsDto> GetInsightsAsync(Guid userId, CancellationToken cancellationToken = default)
     {
@@ -54,6 +92,7 @@ public class DashboardService(
                     UpdatedAt = null
                 },
                 Scope = scope.Dto,
+                HeroSummary = BuildFallbackHeroSummary([], []),
                 Strengths = [],
                 Weaknesses = [],
                 AbilityDimensions6 = [],
@@ -66,12 +105,22 @@ public class DashboardService(
             scope.Reports.Select(x => x.InterviewId),
             cancellationToken);
 
-        var strengths = BuildStrengths(scope.Reports);
-        var weaknesses = BuildWeaknesses(scope.Reports);
+        var fallbackStrengths = BuildStrengths(scope.Reports);
+        var fallbackWeaknesses = BuildWeaknesses(scope.Reports);
         var abilityDimensions6 = BuildAbilityDimensions(scope.Reports, scores);
         var recentTrend = BuildRecentTrend(scope.Reports, scores);
         var trend = BuildOverviewTrend(recentTrend);
-        var nextActions = BuildNextActions(weaknesses, scope.Reports);
+        var fallbackNextActions = BuildNextActions(fallbackWeaknesses, scope.Reports);
+
+        var narrativeInsights = await BuildNarrativeInsightsAsync(
+            scope.Dto,
+            scope.Reports,
+            abilityDimensions6,
+            recentTrend,
+            fallbackStrengths,
+            fallbackWeaknesses,
+            fallbackNextActions,
+            cancellationToken);
 
         return new DashboardInsightsDto
         {
@@ -80,18 +129,93 @@ public class DashboardService(
                 TotalInterviews = totalInterviews,
                 TotalReports = scope.Reports.Count,
                 Recent30DayInterviews = recent30DayInterviews,
-                StrengthsCount = strengths.Length,
-                WeaknessesCount = weaknesses.Length,
+                StrengthsCount = narrativeInsights.Strengths.Length,
+                WeaknessesCount = narrativeInsights.Weaknesses.Length,
                 Trend = trend,
                 UpdatedAt = scope.Reports.Max(x => x.GeneratedAt)
             },
             Scope = scope.Dto,
-            Strengths = strengths,
-            Weaknesses = weaknesses,
+            HeroSummary = narrativeInsights.HeroSummary,
+            Strengths = narrativeInsights.Strengths,
+            Weaknesses = narrativeInsights.Weaknesses,
             AbilityDimensions6 = abilityDimensions6,
             RecentTrend = recentTrend,
-            NextActions = nextActions
+            NextActions = narrativeInsights.NextActions
         };
+    }
+
+    private async Task<DashboardNarrativeInsights> BuildNarrativeInsightsAsync(
+        DashboardScopeDto scope,
+        IReadOnlyCollection<InterviewReport> reports,
+        IReadOnlyList<DashboardAbilityDimension6Dto> abilityDimensions,
+        IReadOnlyList<DashboardRecentTrendItemDto> recentTrend,
+        IReadOnlyList<DashboardStrengthItemDto> fallbackStrengths,
+        IReadOnlyList<DashboardWeaknessItemDto> fallbackWeaknesses,
+        IReadOnlyList<string> fallbackNextActions,
+        CancellationToken cancellationToken)
+    {
+        var fallbackSummary = BuildFallbackHeroSummary(fallbackStrengths, fallbackWeaknesses);
+        var fallbackInsights = new DashboardNarrativeInsights
+        {
+            HeroSummary = fallbackSummary,
+            Strengths = fallbackStrengths.ToArray(),
+            Weaknesses = fallbackWeaknesses.ToArray(),
+            NextActions = fallbackNextActions.ToArray()
+        };
+
+        var provider = await aiSettingsService.BuildProviderAsync(cancellationToken);
+        if (provider is null)
+        {
+            return fallbackInsights;
+        }
+
+        try
+        {
+            var rawContent = await provider.ChatCompleteAsync(new AiChatRequest
+            {
+                SystemPrompt = DashboardInsightsSystemPrompt,
+                UserPrompt = BuildAiInsightsPrompt(scope, reports, abilityDimensions, recentTrend),
+                Temperature = 0.2f,
+                MaxTokens = 1200
+            }, cancellationToken);
+
+            var parsed = TryParseAiInsightsJson(rawContent);
+            if (parsed is null)
+            {
+                var plainSummary = NormalizeHeroSummary(rawContent);
+                return fallbackInsights with
+                {
+                    HeroSummary = string.IsNullOrWhiteSpace(plainSummary) ? fallbackSummary : plainSummary
+                };
+            }
+
+            var orderedReports = reports
+                .OrderByDescending(x => x.GeneratedAt)
+                .Take(ReportEvidenceLimit)
+                .OrderBy(x => x.GeneratedAt)
+                .ToArray();
+
+            var aiStrengths = MapAiStrengths(parsed.Strengths, orderedReports);
+            var aiWeaknesses = MapAiWeaknesses(parsed.Weaknesses, orderedReports);
+            var aiNextActions = BuildAiNextActions(parsed.NextActions, aiWeaknesses, fallbackNextActions);
+            var aiSummary = NormalizeHeroSummary(parsed.HeroSummary);
+
+            return new DashboardNarrativeInsights
+            {
+                HeroSummary = string.IsNullOrWhiteSpace(aiSummary) ? fallbackSummary : aiSummary,
+                Strengths = aiStrengths.Length > 0 ? aiStrengths : fallbackStrengths.ToArray(),
+                Weaknesses = aiWeaknesses.Length > 0 ? aiWeaknesses : fallbackWeaknesses.ToArray(),
+                NextActions = aiNextActions.Length > 0 ? aiNextActions : fallbackNextActions.ToArray()
+            };
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "生成个人画像 AI 聚合结果失败，回退到规则画像。reportCount={ReportCount}",
+                reports.Count);
+            return fallbackInsights;
+        }
     }
 
     private async Task<(DashboardScopeDto Dto, List<InterviewReport> Reports)> ResolveScopeAsync(
@@ -378,6 +502,373 @@ public class DashboardService(
         return actions.ToArray();
     }
 
+    private static string BuildAiInsightsPrompt(
+        DashboardScopeDto scope,
+        IReadOnlyCollection<InterviewReport> reports,
+        IReadOnlyList<DashboardAbilityDimension6Dto> abilityDimensions,
+        IReadOnlyList<DashboardRecentTrendItemDto> recentTrend)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine($"画像范围：{BuildScopeText(scope)}");
+        builder.AppendLine($"纳入报告数：{scope.ReportCount}");
+        builder.AppendLine($"六维画像：{BuildAbilityDimensionText(abilityDimensions)}");
+        builder.AppendLine($"最近趋势：{BuildTrendText(recentTrend)}");
+        builder.AppendLine("可引用的报告证据如下：");
+
+        var orderedReports = reports
+            .OrderByDescending(x => x.GeneratedAt)
+            .Take(ReportEvidenceLimit)
+            .OrderBy(x => x.GeneratedAt)
+            .ToArray();
+
+        for (var index = 0; index < orderedReports.Length; index += 1)
+        {
+            var report = orderedReports[index];
+            builder.AppendLine(
+                $"""
+                报告#{index + 1}
+                日期：{report.GeneratedAt:yyyy-MM-dd}
+                岗位：{report.Position?.Name ?? report.PositionCode}
+                总结：{TrimWithMarker(report.ExecutiveSummary, 90)}
+                优势：{JoinReportTexts(report.Strengths)}
+                不足：{JoinReportTexts(report.Weaknesses)}
+                建议：{JoinReportTexts(report.LearningSuggestions.Concat(report.NextInterviewFocus).ToArray())}
+                """);
+        }
+
+        builder.AppendLine("请严格按照 system prompt 中的 JSON 结构返回结果。");
+        return builder.ToString();
+    }
+
+    private static DashboardStrengthItemDto[] MapAiStrengths(
+        DashboardAiStrengthJson[]? items,
+        IReadOnlyList<InterviewReport> orderedReports)
+    {
+        if (items is not { Length: > 0 })
+        {
+            return [];
+        }
+
+        var result = new List<DashboardStrengthItemDto>();
+        for (var index = 0; index < items.Length && result.Count < InsightItemLimit; index += 1)
+        {
+            var item = items[index];
+            var title = NormalizeSingleLine(item.Title, 20);
+            var description = NormalizeSingleLine(item.Description, 120);
+            var reportIndexes = NormalizeReportIndexes(item.ReportIndexes, orderedReports.Count);
+
+            if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(description) || reportIndexes.Length == 0)
+            {
+                continue;
+            }
+
+            var relatedReports = reportIndexes
+                .Select(reportIndex => orderedReports[reportIndex - 1])
+                .ToArray();
+
+            result.Add(new DashboardStrengthItemDto
+            {
+                Key = $"ai_strength_{result.Count + 1}",
+                Title = title,
+                Description = description,
+                EvidenceCount = reportIndexes.Length,
+                LastSeenAt = relatedReports.Max(x => x.GeneratedAt),
+                EvidenceSamples = NormalizeStringArray(item.EvidenceSamples, 3, 60),
+                Sources = relatedReports
+                    .OrderByDescending(x => x.GeneratedAt)
+                    .Take(SourceLimit)
+                    .Select(ToSourceDto)
+                    .ToArray()
+            });
+        }
+
+        return result.ToArray();
+    }
+
+    private static DashboardWeaknessItemDto[] MapAiWeaknesses(
+        DashboardAiWeaknessJson[]? items,
+        IReadOnlyList<InterviewReport> orderedReports)
+    {
+        if (items is not { Length: > 0 })
+        {
+            return [];
+        }
+
+        var result = new List<DashboardWeaknessItemDto>();
+        for (var index = 0; index < items.Length && result.Count < InsightItemLimit; index += 1)
+        {
+            var item = items[index];
+            var title = NormalizeSingleLine(item.Title, 20);
+            var description = NormalizeSingleLine(item.Description, 120);
+            var suggestion = NormalizeSingleLine(item.Suggestion, 80);
+            var reportIndexes = NormalizeReportIndexes(item.ReportIndexes, orderedReports.Count);
+
+            if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(description) || reportIndexes.Length == 0)
+            {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(suggestion))
+            {
+                suggestion = "结合最近一次面试复盘，补齐相关薄弱点。";
+            }
+
+            var relatedReports = reportIndexes
+                .Select(reportIndex => orderedReports[reportIndex - 1])
+                .ToArray();
+
+            result.Add(new DashboardWeaknessItemDto
+            {
+                Key = $"ai_weakness_{result.Count + 1}",
+                Title = title,
+                Description = description,
+                EvidenceCount = reportIndexes.Length,
+                LastSeenAt = relatedReports.Max(x => x.GeneratedAt),
+                TypicalBehaviors = NormalizeStringArray(item.TypicalBehaviors, 3, 60),
+                Suggestion = suggestion,
+                Sources = relatedReports
+                    .OrderByDescending(x => x.GeneratedAt)
+                    .Take(SourceLimit)
+                    .Select(ToSourceDto)
+                    .ToArray()
+            });
+        }
+
+        return result.ToArray();
+    }
+
+    private static string[] BuildAiNextActions(
+        string[]? aiNextActions,
+        IReadOnlyList<DashboardWeaknessItemDto> aiWeaknesses,
+        IReadOnlyList<string> fallbackNextActions)
+    {
+        var actions = new List<string>();
+
+        foreach (var action in NormalizeStringArray(aiNextActions, 3, 80))
+        {
+            AppendUnique(actions, action);
+        }
+
+        foreach (var suggestion in aiWeaknesses.Select(x => x.Suggestion))
+        {
+            AppendUnique(actions, suggestion);
+            if (actions.Count == 3)
+            {
+                return actions.ToArray();
+            }
+        }
+
+        foreach (var fallback in fallbackNextActions)
+        {
+            AppendUnique(actions, fallback);
+            if (actions.Count == 3)
+            {
+                return actions.ToArray();
+            }
+        }
+
+        return actions.ToArray();
+    }
+
+    private static DashboardAiInsightsJson? TryParseAiInsightsJson(string rawContent)
+    {
+        static DashboardAiInsightsJson? TryDeserialize(string value)
+        {
+            try
+            {
+                return JsonSerializer.Deserialize<DashboardAiInsightsJson>(
+                    value,
+                    new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        var parsed = TryDeserialize(rawContent);
+        if (parsed is not null)
+        {
+            return parsed;
+        }
+
+        var trimmed = rawContent.Trim();
+        if (trimmed.StartsWith("```", StringComparison.Ordinal))
+        {
+            var firstNewLine = trimmed.IndexOf('\n');
+            if (firstNewLine >= 0)
+            {
+                trimmed = trimmed[(firstNewLine + 1)..].TrimStart();
+            }
+
+            if (trimmed.EndsWith("```", StringComparison.Ordinal))
+            {
+                trimmed = trimmed[..^3].TrimEnd();
+            }
+        }
+
+        var jsonStart = trimmed.IndexOf('{');
+        var jsonEnd = trimmed.LastIndexOf('}');
+        if (jsonStart >= 0 && jsonEnd > jsonStart)
+        {
+            trimmed = trimmed[jsonStart..(jsonEnd + 1)];
+        }
+
+        return TryDeserialize(trimmed);
+    }
+
+    private static string BuildFallbackHeroSummary(
+        IReadOnlyList<DashboardStrengthItemDto> strengths,
+        IReadOnlyList<DashboardWeaknessItemDto> weaknesses)
+    {
+        var strengthSummary = JoinStrengthTitles(strengths);
+        var weaknessSummary = JoinWeaknessTitles(weaknesses);
+
+        if (!string.IsNullOrWhiteSpace(strengthSummary) && !string.IsNullOrWhiteSpace(weaknessSummary))
+        {
+            return $"根据你最近的面试记录，你当前更偏向“{strengthSummary}”，但 {weaknessSummary} 仍需继续加强。";
+        }
+
+        if (!string.IsNullOrWhiteSpace(strengthSummary))
+        {
+            return $"根据你最近的面试记录，你当前已经显现出“{strengthSummary}”等优势特征。";
+        }
+
+        if (!string.IsNullOrWhiteSpace(weaknessSummary))
+        {
+            return $"根据你最近的面试记录，当前最需要优先修复的是 {weaknessSummary}。";
+        }
+
+        return "根据你最近的面试记录，这里会持续更新你的能力强项、短板与趋势变化。";
+    }
+
+    private static string BuildScopeText(DashboardScopeDto scope)
+    {
+        if (scope.ActualScope == DashboardInsightsRules.ActualScopeTargetPosition)
+        {
+            return $"目标岗位 {scope.TargetPositionName ?? scope.TargetPositionCode ?? "未设置"}";
+        }
+
+        return scope.FallbackTriggered
+            ? "目标岗位无报告，已回退到全部历史报告"
+            : "全部历史报告";
+    }
+
+    private static string BuildAbilityDimensionText(IReadOnlyList<DashboardAbilityDimension6Dto> abilityDimensions)
+    {
+        if (abilityDimensions.Count == 0)
+        {
+            return "暂无";
+        }
+
+        return string.Join("；", abilityDimensions.Select(item => $"{item.Name} {item.Score:F0}"));
+    }
+
+    private static string BuildTrendText(IReadOnlyList<DashboardRecentTrendItemDto> recentTrend)
+    {
+        if (recentTrend.Count == 0)
+        {
+            return "暂无";
+        }
+
+        if (recentTrend.Count == 1)
+        {
+            var only = recentTrend[0];
+            return $"{only.Date:MM-dd} {only.Score:F1}";
+        }
+
+        var latest = recentTrend[^1];
+        var previous = recentTrend[Math.Max(0, recentTrend.Count - 2)];
+        var direction = latest.Score > previous.Score ? "上升" : latest.Score < previous.Score ? "下降" : "持平";
+        return $"{previous.Date:MM-dd} {previous.Score:F1} -> {latest.Date:MM-dd} {latest.Score:F1}（{direction}）";
+    }
+
+    private static string JoinStrengthTitles(IReadOnlyList<DashboardStrengthItemDto> strengths)
+    {
+        return string.Join("、", strengths.Take(2).Select(item => item.Title));
+    }
+
+    private static string JoinWeaknessTitles(IReadOnlyList<DashboardWeaknessItemDto> weaknesses)
+    {
+        return string.Join("、", weaknesses.Take(2).Select(item => item.Title));
+    }
+
+    private static string JoinReportTexts(string[] values)
+    {
+        var items = values
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Take(2)
+            .Select(x => TrimWithMarker(x, 40))
+            .ToArray();
+
+        return items.Length == 0 ? "暂无" : string.Join("；", items);
+    }
+
+    private static string NormalizeHeroSummary(string? rawSummary)
+    {
+        return NormalizeSingleLine(rawSummary, 140);
+    }
+
+    private static string NormalizeSingleLine(string? value, int limit)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var compact = string.Join(' ', value.Split(default(string[]), StringSplitOptions.RemoveEmptyEntries))
+            .Trim()
+            .Trim('"', '\'', '“', '”');
+
+        return TrimWithMarker(compact, limit, "…");
+    }
+
+    private static string[] NormalizeStringArray(IEnumerable<string>? values, int maxItems, int maxLength)
+    {
+        if (values is null)
+        {
+            return [];
+        }
+
+        var result = new List<string>();
+        foreach (var value in values)
+        {
+            var normalized = NormalizeSingleLine(value, maxLength);
+            AppendUnique(result, normalized);
+            if (result.Count == maxItems)
+            {
+                break;
+            }
+        }
+
+        return result.ToArray();
+    }
+
+    private static int[] NormalizeReportIndexes(IEnumerable<int>? reportIndexes, int maxIndex)
+    {
+        if (reportIndexes is null)
+        {
+            return [];
+        }
+
+        return reportIndexes
+            .Where(index => index >= 1 && index <= maxIndex)
+            .Distinct()
+            .ToArray();
+    }
+
+    private static string TrimWithMarker(string? value, int limit, string marker = "[TRUNCATED]")
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        return value.Length <= limit
+            ? value
+            : value[..Math.Max(0, limit - marker.Length)] + marker;
+    }
+
     private static void AppendUnique(List<string> target, string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -446,5 +937,51 @@ public class DashboardService(
             GeneratedAt = report.GeneratedAt,
             PositionName = report.Position?.Name ?? report.PositionCode
         };
+    }
+
+    private sealed record DashboardNarrativeInsights
+    {
+        public string HeroSummary { get; init; } = string.Empty;
+
+        public DashboardStrengthItemDto[] Strengths { get; init; } = [];
+
+        public DashboardWeaknessItemDto[] Weaknesses { get; init; } = [];
+
+        public string[] NextActions { get; init; } = [];
+    }
+
+    private sealed class DashboardAiInsightsJson
+    {
+        public string? HeroSummary { get; init; }
+
+        public DashboardAiStrengthJson[]? Strengths { get; init; }
+
+        public DashboardAiWeaknessJson[]? Weaknesses { get; init; }
+
+        public string[]? NextActions { get; init; }
+    }
+
+    private sealed class DashboardAiStrengthJson
+    {
+        public string? Title { get; init; }
+
+        public string? Description { get; init; }
+
+        public string[]? EvidenceSamples { get; init; }
+
+        public int[]? ReportIndexes { get; init; }
+    }
+
+    private sealed class DashboardAiWeaknessJson
+    {
+        public string? Title { get; init; }
+
+        public string? Description { get; init; }
+
+        public string[]? TypicalBehaviors { get; init; }
+
+        public string? Suggestion { get; init; }
+
+        public int[]? ReportIndexes { get; init; }
     }
 }

@@ -185,6 +185,7 @@ export interface DashboardInsightsDetail {
     fallbackReason?: string | null;
     reportCount: number;
   };
+  heroSummary: string;
   strengths: Array<{
     key: string;
     title: string;
