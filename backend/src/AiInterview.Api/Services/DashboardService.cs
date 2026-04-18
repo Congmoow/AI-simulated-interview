@@ -1,4 +1,5 @@
 using AiInterview.Api.Constants;
+using AiInterview.Api.DTOs.Admin;
 using AiInterview.Api.DTOs.Dashboard;
 using AiInterview.Api.DTOs.Reports;
 using AiInterview.Api.Mappings;
@@ -6,6 +7,9 @@ using AiInterview.Api.Middleware;
 using AiInterview.Api.Models.Entities;
 using AiInterview.Api.Repositories.Interfaces;
 using AiInterview.Api.Services.Interfaces;
+using Microsoft.Extensions.Caching.Memory;
+using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -16,12 +20,14 @@ public class DashboardService(
     IInterviewRepository interviewRepository,
     IReportRepository reportRepository,
     IAiSettingsService aiSettingsService,
+    IMemoryCache memoryCache,
     ILogger<DashboardService> logger) : IDashboardService
 {
     private const int RecentTrendLimit = 10;
     private const int SourceLimit = 3;
     private const int ReportEvidenceLimit = 4;
     private const int InsightItemLimit = 3;
+    private static readonly TimeSpan NarrativeCacheDuration = TimeSpan.FromMinutes(15);
     private const string DashboardInsightsSystemPrompt =
         """
         你是一名中文求职辅导顾问。
@@ -113,6 +119,7 @@ public class DashboardService(
         var fallbackNextActions = BuildNextActions(fallbackWeaknesses, scope.Reports);
 
         var narrativeInsights = await BuildNarrativeInsightsAsync(
+            userId,
             scope.Dto,
             scope.Reports,
             abilityDimensions6,
@@ -145,6 +152,7 @@ public class DashboardService(
     }
 
     private async Task<DashboardNarrativeInsights> BuildNarrativeInsightsAsync(
+        Guid userId,
         DashboardScopeDto scope,
         IReadOnlyCollection<InterviewReport> reports,
         IReadOnlyList<DashboardAbilityDimension6Dto> abilityDimensions,
@@ -162,6 +170,26 @@ public class DashboardService(
             Weaknesses = fallbackWeaknesses.ToArray(),
             NextActions = fallbackNextActions.ToArray()
         };
+
+        var aiSettings = await aiSettingsService.GetSettingsAsync(cancellationToken);
+        if (!aiSettings.IsEnabled)
+        {
+            return fallbackInsights;
+        }
+
+        var cacheKey = BuildNarrativeInsightsCacheKey(
+            userId,
+            scope,
+            reports,
+            abilityDimensions,
+            recentTrend,
+            aiSettings);
+
+        if (memoryCache.TryGetValue<DashboardNarrativeInsights>(cacheKey, out var cachedInsights) &&
+            cachedInsights is not null)
+        {
+            return cachedInsights;
+        }
 
         var provider = await aiSettingsService.BuildProviderAsync(cancellationToken);
         if (provider is null)
@@ -183,10 +211,12 @@ public class DashboardService(
             if (parsed is null)
             {
                 var plainSummary = NormalizeHeroSummary(rawContent);
-                return fallbackInsights with
+                var narrative = fallbackInsights with
                 {
                     HeroSummary = string.IsNullOrWhiteSpace(plainSummary) ? fallbackSummary : plainSummary
                 };
+                memoryCache.Set(cacheKey, narrative, NarrativeCacheDuration);
+                return narrative;
             }
 
             var orderedReports = reports
@@ -200,13 +230,16 @@ public class DashboardService(
             var aiNextActions = BuildAiNextActions(parsed.NextActions, aiWeaknesses, fallbackNextActions);
             var aiSummary = NormalizeHeroSummary(parsed.HeroSummary);
 
-            return new DashboardNarrativeInsights
+            var result = new DashboardNarrativeInsights
             {
                 HeroSummary = string.IsNullOrWhiteSpace(aiSummary) ? fallbackSummary : aiSummary,
                 Strengths = aiStrengths.Length > 0 ? aiStrengths : fallbackStrengths.ToArray(),
                 Weaknesses = aiWeaknesses.Length > 0 ? aiWeaknesses : fallbackWeaknesses.ToArray(),
                 NextActions = aiNextActions.Length > 0 ? aiNextActions : fallbackNextActions.ToArray()
             };
+
+            memoryCache.Set(cacheKey, result, NarrativeCacheDuration);
+            return result;
         }
         catch (Exception ex)
         {
@@ -668,6 +701,62 @@ public class DashboardService(
         }
 
         return actions.ToArray();
+    }
+
+    private static string BuildNarrativeInsightsCacheKey(
+        Guid userId,
+        DashboardScopeDto scope,
+        IReadOnlyCollection<InterviewReport> reports,
+        IReadOnlyList<DashboardAbilityDimension6Dto> abilityDimensions,
+        IReadOnlyList<DashboardRecentTrendItemDto> recentTrend,
+        AiSettingsDto aiSettings)
+    {
+        var builder = new StringBuilder();
+        builder.Append(userId).Append('|');
+        builder.Append(scope.ScopeStrategy).Append('|');
+        builder.Append(scope.ActualScope).Append('|');
+        builder.Append(scope.TargetPositionCode).Append('|');
+        builder.Append(scope.TargetPositionName).Append('|');
+        builder.Append(scope.FallbackTriggered).Append('|');
+        builder.Append(scope.FallbackReason).Append('|');
+        builder.Append(scope.ReportCount).Append('|');
+        builder.Append(aiSettings.Provider).Append('|');
+        builder.Append(aiSettings.BaseUrl).Append('|');
+        builder.Append(aiSettings.Model).Append('|');
+        builder.Append(aiSettings.UpdatedAt.ToUnixTimeMilliseconds());
+
+        foreach (var report in reports.OrderBy(x => x.GeneratedAt).ThenBy(x => x.Id))
+        {
+            builder.Append('|');
+            builder.Append(report.Id).Append(':');
+            builder.Append(report.GeneratedAt.ToUnixTimeMilliseconds()).Append(':');
+            builder.Append(report.UpdatedAt.ToUnixTimeMilliseconds()).Append(':');
+            builder.Append(report.OverallScore.ToString(CultureInfo.InvariantCulture)).Append(':');
+            builder.Append(report.PositionCode);
+        }
+
+        foreach (var item in abilityDimensions.OrderBy(x => x.Key))
+        {
+            builder.Append('|');
+            builder.Append(item.Key).Append(':');
+            builder.Append(item.Score.ToString(CultureInfo.InvariantCulture));
+        }
+
+        foreach (var item in recentTrend.OrderBy(x => x.Date).ThenBy(x => x.ReportId))
+        {
+            builder.Append('|');
+            builder.Append(item.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)).Append(':');
+            builder.Append(item.ReportId).Append(':');
+            builder.Append(item.Score.ToString(CultureInfo.InvariantCulture));
+        }
+
+        return $"dashboard:insights:narrative:{HashCacheKey(builder.ToString())}";
+    }
+
+    private static string HashCacheKey(string rawValue)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(rawValue));
+        return Convert.ToHexString(hash);
     }
 
     private static DashboardAiInsightsJson? TryParseAiInsightsJson(string rawContent)

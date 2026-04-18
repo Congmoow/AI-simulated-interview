@@ -59,6 +59,7 @@ var frontendUrl = builder.Configuration.GetValue<string>("App:FrontendUrl") ?? "
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddMemoryCache();
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {

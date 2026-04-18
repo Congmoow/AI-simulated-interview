@@ -5,6 +5,7 @@ using AiInterview.Api.Repositories.Interfaces;
 using AiInterview.Api.Services;
 using AiInterview.Api.Services.Interfaces;
 using FluentAssertions;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace AiInterview.Api.Tests.Services;
@@ -309,6 +310,136 @@ public class DashboardServiceTests
         heroSummaryProperty.Should().NotBeNull();
         heroSummaryProperty!.GetValue(result).Should().Be("AI 判断你目前表达稳定、结构清晰，但项目深挖仍需继续加强。");
         aiProvider.Requests.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task GetInsightsAsync_ShouldReuseCachedNarrativeInsights_WhenReportsUnchanged()
+    {
+        var userId = Guid.NewGuid();
+        var reportRepository = new InMemoryDashboardReportRepository();
+        var interviewRepository = new InMemoryDashboardInterviewRepository();
+        var aiProvider = new DashboardStubAiProvider
+        {
+            ResponseText = "AI 判断你目前表达稳定、结构清晰，但项目深挖仍需继续加强。"
+        };
+        var aiSettingsService = new DashboardStubAiSettingsService
+        {
+            Provider = aiProvider
+        };
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+
+        SeedInterview(interviewRepository, userId, "web-frontend", "2026-04-01T08:00:00Z");
+        SeedReport(
+            reportRepository,
+            userId,
+            "web-frontend",
+            "Web 前端开发工程师",
+            "2026-04-01T08:00:00Z",
+            86m,
+            strengths: ["回答结构清晰，能先给结论再展开说明。"],
+            weaknesses: ["底层原理解释不够深入。"],
+            suggestions: ["针对薄弱点补一轮底层原理梳理。"],
+            dimensionScores: CreateDimensionScores(
+                clarity: 90,
+                fluency: 88,
+                technicalAccuracy: 84,
+                knowledgeDepth: 72,
+                projectAuthenticity: 76,
+                logicalThinking: 85,
+                confidence: 80,
+                positionMatch: 83));
+
+        var firstService = CreateService(
+            userId,
+            "web-frontend",
+            "Web 前端开发工程师",
+            interviewRepository,
+            reportRepository,
+            aiSettingsService,
+            memoryCache);
+        var secondService = CreateService(
+            userId,
+            "web-frontend",
+            "Web 前端开发工程师",
+            interviewRepository,
+            reportRepository,
+            aiSettingsService,
+            memoryCache);
+
+        var firstResult = await firstService.GetInsightsAsync(userId);
+        var secondResult = await secondService.GetInsightsAsync(userId);
+
+        firstResult.HeroSummary.Should().Be("AI 判断你目前表达稳定、结构清晰，但项目深挖仍需继续加强。");
+        secondResult.HeroSummary.Should().Be(firstResult.HeroSummary);
+        aiProvider.Requests.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task GetInsightsAsync_ShouldRefreshCachedNarrativeInsights_WhenReportSnapshotChanges()
+    {
+        var userId = Guid.NewGuid();
+        var reportRepository = new InMemoryDashboardReportRepository();
+        var interviewRepository = new InMemoryDashboardInterviewRepository();
+        var aiProvider = new DashboardStubAiProvider
+        {
+            ResponseText = "第一版个人画像总结。"
+        };
+        var aiSettingsService = new DashboardStubAiSettingsService
+        {
+            Provider = aiProvider
+        };
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+
+        SeedInterview(interviewRepository, userId, "web-frontend", "2026-04-01T08:00:00Z");
+        var report = SeedReport(
+            reportRepository,
+            userId,
+            "web-frontend",
+            "Web 前端开发工程师",
+            "2026-04-01T08:00:00Z",
+            86m,
+            strengths: ["回答结构清晰，能先给结论再展开说明。"],
+            weaknesses: ["底层原理解释不够深入。"],
+            suggestions: ["针对薄弱点补一轮底层原理梳理。"],
+            dimensionScores: CreateDimensionScores(
+                clarity: 90,
+                fluency: 88,
+                technicalAccuracy: 84,
+                knowledgeDepth: 72,
+                projectAuthenticity: 76,
+                logicalThinking: 85,
+                confidence: 80,
+                positionMatch: 83));
+
+        var firstService = CreateService(
+            userId,
+            "web-frontend",
+            "Web 前端开发工程师",
+            interviewRepository,
+            reportRepository,
+            aiSettingsService,
+            memoryCache);
+
+        var firstResult = await firstService.GetInsightsAsync(userId);
+
+        aiProvider.ResponseText = "第二版个人画像总结。";
+        report.ExecutiveSummary = "新增了一段报告总结，用来模拟报告重新生成。";
+        report.UpdatedAt = report.UpdatedAt.AddMinutes(5);
+
+        var secondService = CreateService(
+            userId,
+            "web-frontend",
+            "Web 前端开发工程师",
+            interviewRepository,
+            reportRepository,
+            aiSettingsService,
+            memoryCache);
+
+        var secondResult = await secondService.GetInsightsAsync(userId);
+
+        firstResult.HeroSummary.Should().Be("第一版个人画像总结。");
+        secondResult.HeroSummary.Should().Be("第二版个人画像总结。");
+        aiProvider.Requests.Should().HaveCount(2);
     }
 
     [Fact]
@@ -834,7 +965,8 @@ public class DashboardServiceTests
         string? targetPositionName,
         InMemoryDashboardInterviewRepository interviewRepository,
         InMemoryDashboardReportRepository reportRepository,
-        DashboardStubAiSettingsService? aiSettingsService = null)
+        DashboardStubAiSettingsService? aiSettingsService = null,
+        IMemoryCache? memoryCache = null)
     {
         var userRepository = new InMemoryDashboardUserRepository
         {
@@ -871,6 +1003,15 @@ public class DashboardServiceTests
                     interviewRepository,
                     reportRepository,
                     aiSettingsService ?? new DashboardStubAiSettingsService(),
+                    NullLogger<DashboardService>.Instance
+                ]),
+            6 => (DashboardService)constructor.Invoke(
+                [
+                    userRepository,
+                    interviewRepository,
+                    reportRepository,
+                    aiSettingsService ?? new DashboardStubAiSettingsService(),
+                    memoryCache ?? new MemoryCache(new MemoryCacheOptions()),
                     NullLogger<DashboardService>.Instance
                 ]),
             _ => throw new NotSupportedException($"Unexpected DashboardService constructor parameter count: {parameters.Length}")
