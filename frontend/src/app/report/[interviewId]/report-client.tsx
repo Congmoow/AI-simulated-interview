@@ -80,7 +80,7 @@ export function ReportClient({ interviewId }: { interviewId: string }) {
     }
 
     if (!accessToken) {
-      openLogin({ type: "navigate", target: `/report/${interviewId}` });
+      openLogin({ type: "navigate", target: `/reports/${interviewId}` });
       return;
     }
 

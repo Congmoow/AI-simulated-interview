@@ -1,3 +1,4 @@
-export function getReportDetailPath(interviewId: string) {
-  return `/report/${interviewId}`;
-}
+export {
+  getReportDetailPath,
+  getReportsIndexPath,
+} from "@/features/reports/report-route";

@@ -12,7 +12,7 @@ import { writeStoredAuth } from "@/utils/storage";
 const navItems = [
   { href: "/dashboard", label: "个人画像", hint: "当前能力分析" },
   { href: "/interview", label: "模拟面试", hint: "实时问答" },
-  { href: "/report", label: "报告中心", hint: "复盘诊断" },
+  { href: "/reports", label: "报告中心", hint: "复盘诊断" },
   { href: "/resources", label: "学习资源", hint: "推荐内容" },
   { href: "/admin", label: "管理后台", hint: "题库与知识库" },
 ];

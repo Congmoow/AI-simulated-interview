@@ -9,7 +9,7 @@ import { cn } from "@/lib/cn";
 const PAGE_LABELS: Record<string, string> = {
   "/dashboard": "个人画像",
   "/interview": "模拟面试",
-  "/report": "报告中心",
+  "/reports": "报告中心",
   "/resources": "学习资源",
   "/admin": "管理后台",
 };

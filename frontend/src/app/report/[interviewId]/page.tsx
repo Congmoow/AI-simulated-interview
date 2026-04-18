@@ -1,10 +1,10 @@
-import { ReportClient } from "@/app/report/[interviewId]/report-client";
+import { redirect } from "next/navigation";
 
-export default async function ReportDetailPage({
+export default async function LegacyReportDetailPage({
   params,
 }: {
   params: Promise<{ interviewId: string }>;
 }) {
   const { interviewId } = await params;
-  return <ReportClient interviewId={interviewId} />;
+  redirect(`/reports/${interviewId}`);
 }

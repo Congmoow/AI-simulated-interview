@@ -376,7 +376,7 @@ export function InterviewClient() {
       }
 
       if (action === "view-report") {
-        router.push(`/report/${interviewId}`);
+        router.push(`/reports/${interviewId}`);
         return;
       }
 
