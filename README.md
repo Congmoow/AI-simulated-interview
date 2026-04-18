@@ -16,7 +16,8 @@
 
 说明：
 
-- `Docs/ARCHITECTURE.md`、`Docs/API.md` 等文档包含更完整的目标架构与设计说明
+- `docs-shared/` 是仓库内共享文档根目录，当前入口为 `docs-shared/README.md`
+- `Docs/` 保留为本地专用目录，不纳入 Git，也不是仓库内共享文档入口
 - README 优先描述当前仓库的实际启动方式、目录结构和可落地开发路径
 
 ## 技术栈与服务
@@ -33,7 +34,8 @@
 
 ```text
 .
-├── Docs/                         # 架构、接口、数据库、设计等文档
+├── docs-shared/                  # Git 内共享文档根目录（当前入口见 docs-shared/README.md）
+├── Docs/                         # 本地专用文档目录，不纳入 Git
 ├── frontend/                     # Next.js 前端
 ├── backend/                      # ASP.NET Core Web API
 ├── ai-service/                   # FastAPI AI 服务
@@ -241,19 +243,16 @@ AI_SERVICE_MODEL_PROVIDER=mock
 - 普通用户：`zhangsan / Pass1234`
 - 管理员：`admin / Admin1234`
 
-## 常用文档索引
+## 共享文档入口
 
-- [接口文档](./Docs/API.md)
-- [系统架构](./Docs/ARCHITECTURE.md)
-- [数据库设计](./Docs/DATABASE.md)
-- [设计系统](./Docs/DESIGN.md)
-- [真实 AI 面试主链路交付说明](./Docs/真实AI面试主链路-交付说明.md)
+- [共享文档说明](./docs-shared/README.md)
 
-阅读建议：
+说明：
 
-- 想了解业务接口，先看 `Docs/API.md`
-- 想了解整体分层和职责边界，先看 `Docs/ARCHITECTURE.md`
-- 想了解当前数据表和字段设计，先看 `Docs/DATABASE.md`
+- `docs-shared/` 只存放需要评审、回溯、协作的共享文档
+- 共享文档结构后续可以按实际协作需要逐步扩展，当前请先以 `docs-shared/README.md` 作为入口
+- `Docs/` 仍为本地专用目录，可继续存放个人草稿或临时记录，但不作为仓库内共享文档入口
+- 如果你过去习惯从 `Docs/` 查找共享文档，请改为从 `docs-shared/README.md` 进入
 
 ## 本地验证命令
 
@@ -304,4 +303,4 @@ uv run pytest
 ## 维护原则
 
 如果 README 与当前代码行为冲突，请优先以最近验证过的实现为准，并同步更新文档。  
-如果你正在扩展接口、页面或启动脚本，建议一并更新本文件和 `Docs/` 下对应专题文档。
+如果你正在扩展接口、页面或启动脚本，建议一并更新本文件和 `docs-shared/` 下的共享文档；`Docs/` 可继续用于个人本地记录，但不作为协作文档入口。
