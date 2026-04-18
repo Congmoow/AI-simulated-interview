@@ -10,7 +10,17 @@
     "dev:full": "concurrently --names frontend,backend,ai-service --prefix \"[{name}]\" --prefix-colors \"cyan,green,magenta\" --kill-others \"npm --prefix frontend run dev\" \"dotnet run --project backend/src/AiInterview.Api/AiInterview.Api.csproj\" \"cd ai-service && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app\"",
     "dev:frontend": "npm --prefix frontend run dev",
     "dev:backend": "dotnet run --project backend/src/AiInterview.Api/AiInterview.Api.csproj",
-    "dev:ai-service": "cd ai-service && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app"
+    "dev:ai-service": "cd ai-service && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app",
+    "lint:frontend": "npm --prefix frontend run lint",
+    "test:frontend": "npm --prefix frontend run test",
+    "test:backend": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/check/run-backend-tests.ps1",
+    "test:ai": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/check/run-ai-tests.ps1",
+    "build:frontend": "npm --prefix frontend run build",
+    "build:backend": "dotnet build ./backend/AiInterview.sln --configuration Release --nologo",
+    "lint": "npm run lint:frontend",
+    "test": "npm run test:frontend && npm run test:backend && npm run test:ai",
+    "build": "npm run build:frontend && npm run build:backend",
+    "check": "npm run lint && npm run test && npm run build"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
