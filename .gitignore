@@ -10,6 +10,7 @@ docs/
 
 # 本地工具与缓存
 .codex
+.worktrees/
 .npm-cache/
 .windsurf/
 .dev-logs
