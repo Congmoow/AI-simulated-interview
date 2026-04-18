@@ -486,6 +486,21 @@ file sealed class StubHubContext : IHubContext<InterviewHub, IInterviewClient>
 
 public class InterviewServiceTests
 {
+    [Theory]
+    [InlineData("frontend-react", null, "请先介绍一个与你目标岗位最相关的前端项目，重点说明场景、职责和结果。")]
+    [InlineData("java-backend", null, "请先介绍一个与你目标岗位最相关的后端项目，重点说明场景、职责和结果。")]
+    [InlineData("product-manager", null, "请先做一个简短自我介绍，并说明一段与你目标岗位最相关的项目经历。")]
+    [InlineData("frontend-react", "  使用已有题目  ", "使用已有题目")]
+    public void BuildOpeningQuestionContent_ShouldReturnExpectedChinesePrompt(string positionCode, string? questionContent, string expected)
+    {
+        var method = typeof(InterviewService).GetMethod("BuildOpeningQuestionContent", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
+        method.Should().NotBeNull();
+        var result = method!.Invoke(null, [positionCode, questionContent]);
+
+        result.Should().Be(expected);
+    }
+
     [Fact]
     public async Task CreateInterviewAsync_ShouldReturnStartQuestionShape_WhenQuestionBankIsAvailable()
     {

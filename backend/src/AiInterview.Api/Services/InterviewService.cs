@@ -709,7 +709,7 @@ public class InterviewService(
             || normalized.Contains("vue", StringComparison.Ordinal)
             || normalized.Contains("web", StringComparison.Ordinal))
         {
-            return "璇峰厛浠嬬粛涓€涓笌浣犵洰鏍囧矖浣嶆渶鐩稿叧鐨勫墠绔」鐩紝閲嶇偣璇存槑鍦烘櫙銆佽亴璐ｅ拰缁撴灉銆?";
+            return "请先介绍一个与你目标岗位最相关的前端项目，重点说明场景、职责和结果。";
         }
 
         if (normalized.Contains("backend", StringComparison.Ordinal)
@@ -718,10 +718,10 @@ public class InterviewService(
             || normalized.Contains("python", StringComparison.Ordinal)
             || normalized.Contains("service", StringComparison.Ordinal))
         {
-            return "璇峰厛浠嬬粛涓€涓笌浣犵洰鏍囧矖浣嶆渶鐩稿叧鐨勫悗绔」鐩紝閲嶇偣璇存槑鍦烘櫙銆佽亴璐ｅ拰缁撴灉銆?";
+            return "请先介绍一个与你目标岗位最相关的后端项目，重点说明场景、职责和结果。";
         }
 
-        return "璇峰厛鍋氫竴涓畝鐭嚜鎴戜粙缁嶏紝骞惰鏄庝竴娈典笌浣犵洰鏍囧矖浣嶆渶鐩稿叧鐨勯」鐩粡鍘嗐€?";
+        return "请先做一个简短自我介绍，并说明一段与你目标岗位最相关的项目经历。";
     }
 
     private static InterviewAiLimitsDto BuildLimits(Interview interview, int messageCount)
