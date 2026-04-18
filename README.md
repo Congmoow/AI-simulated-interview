@@ -255,6 +255,12 @@ AI_SERVICE_MODEL_PROVIDER=mock
 - `Docs/` 仍为本地专用目录，可继续存放个人草稿或临时记录，但不作为仓库内共享文档入口
 - 如果你过去习惯从 `Docs/` 查找共享文档，请改为从 `docs-shared/README.md` 进入
 
+### 本轮结构重组交付说明
+
+- 本轮已完成共享文档入口收口、根目录统一校验入口、报告路由语义统一、首批页面逻辑下沉、AI 服务测试目录迁移，以及后端组合根拆分。
+- 旧路由 `/report`、`/report/[interviewId]` 和 `/history` 当前均保留为兼容跳转层，分别跳转到 `/reports` 或 `/reports/[interviewId]`。
+- 当前无阻塞性已知回归；唯一保留的非阻塞项是仓库仍采用“ESLint warning 不阻塞 `npm run check`”的策略，如需收紧为零 warning，可后续单独调整。
+
 ## 本地验证命令
 
 前端构建：

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getInterview, finishInterview } from "@/services/interview-service";
 import { getReport, getResources, getTrainingPlan } from "@/services/report-service";
 import { Button } from "@/components/ui/button";
@@ -32,7 +32,7 @@ export function ReportClient({ interviewId }: { interviewId: string }) {
   const isGenerating = interviewDetail?.status === "generating_report";
   const isFailed = interviewDetail?.status === "report_failed";
 
-  async function loadReportWithFallback() {
+  const loadReportWithFallback = useCallback(async () => {
     try {
       const reportResponse = await getReport(interviewId);
       const [resourceResponse, trainingResponse] = await Promise.all([
@@ -72,7 +72,7 @@ export function ReportClient({ interviewId }: { interviewId: string }) {
       setError(getRequestErrorMessage(requestError, "报告加载失败"));
       return false;
     }
-  }
+  }, [interviewId]);
 
   useEffect(() => {
     if (!hydrated) {
@@ -89,7 +89,7 @@ export function ReportClient({ interviewId }: { interviewId: string }) {
       await loadReportWithFallback();
       setLoading(false);
     })();
-  }, [accessToken, hydrated, interviewId, openLogin]);
+  }, [accessToken, hydrated, interviewId, loadReportWithFallback, openLogin]);
 
   useEffect(() => {
     if (!accessToken || !hydrated || !isGenerating) {
@@ -108,7 +108,7 @@ export function ReportClient({ interviewId }: { interviewId: string }) {
     return () => {
       window.clearInterval(timer);
     };
-  }, [accessToken, hydrated, interviewId, isGenerating]);
+  }, [accessToken, hydrated, isGenerating, loadReportWithFallback]);
 
   async function handleRetry() {
     setRetrying(true);
