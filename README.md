@@ -246,6 +246,7 @@ AI_SERVICE_MODEL_PROVIDER=mock
 ## 共享文档入口
 
 - [共享文档说明](./docs-shared/README.md)
+- [后端多项目拆分决策](./docs-shared/decisions/0001-后端是否拆分多项目.md)
 
 说明：
 
