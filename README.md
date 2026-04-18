@@ -1,166 +1,192 @@
 # AI 模拟面试与能力提升系统
 
-这是一个多服务仓库，核心服务包括 `frontend`、`backend` 和 `ai-service`。
+面向计算机相关专业学生的多服务面试训练平台。项目采用前后端分离架构，围绕“练习 -> 追问 -> 评分 -> 报告 -> 提升建议”这条主链路，提供岗位化模拟面试、报告生成、资源推荐和知识库处理能力。
 
-仓库保留 Docker Compose 启动方式，同时新增了根目录本地开发联动入口，方便直接在本地调试前后端。
+当前仓库以可本地运行、可继续开发为目标，包含 `frontend`、`backend`、`ai-service` 三个核心服务，以及 Docker Compose、Windows 一键脚本和根目录联动启动入口。
+
+## 当前已落地的主要能力
+
+- 用户注册、登录、JWT 刷新、个人资料更新
+- 岗位列表与题库查询
+- 模拟面试创建、回答提交、结束面试、历史记录查询
+- 面试报告、成长趋势、资源推荐、训练计划查询
+- SignalR 实时面试通道
+- 管理端题库、知识库文档、AI 设置相关接口
+- FastAPI AI 服务的面试、评分、报告、推荐、RAG、文档处理接口
+
+说明：
+
+- `Docs/ARCHITECTURE.md`、`Docs/API.md` 等文档包含更完整的目标架构与设计说明
+- README 优先描述当前仓库的实际启动方式、目录结构和可落地开发路径
+
+## 技术栈与服务
+
+| 服务 | 技术栈 | 作用 | 默认访问地址 |
+| --- | --- | --- | --- |
+| `frontend` | Next.js 16 + React 19 + TypeScript + Tailwind CSS 4 | 登录、控制台、面试、报告、历史、资源、管理页面 | 本地开发默认 `http://localhost:3000`；Docker 默认 `http://localhost:3001` |
+| `backend` | ASP.NET Core 8 + EF Core + SignalR + PostgreSQL + Redis | 业务主入口、认证、面试流程、报告、推荐、知识库、实时推送 | `http://localhost:8080` |
+| `ai-service` | FastAPI + Pydantic + Celery + Redis | 面试问答、评分、报告、推荐、RAG、文档处理 | `http://localhost:8000` |
+| `postgres` | pgvector/pg15 | 主数据库，承载结构化数据与向量能力 | `localhost:5433` |
+| `redis` | Redis 7 | 缓存、会话、队列相关能力 | `localhost:6379` |
 
 ## 仓库结构
 
 ```text
 .
-├── Docs/                  # 需求、架构与数据库文档
-├── frontend/              # Next.js App Router + TypeScript + Tailwind
-├── backend/               # ASP.NET Core Web API + SignalR + EF Core
-├── ai-service/            # FastAPI + Celery
-├── storage/               # 本地数据卷目录
-├── docker-compose.yml
-├── .env.example
-└── .env.run
+├── Docs/                         # 架构、接口、数据库、设计等文档
+├── frontend/                     # Next.js 前端
+├── backend/                      # ASP.NET Core Web API
+├── ai-service/                   # FastAPI AI 服务
+├── scripts/                      # 根目录启动辅助脚本
+├── storage/                      # PostgreSQL、Redis、上传文件、密钥等本地数据
+├── docker-compose.yml            # 多服务容器编排
+├── .env.example                  # 运行环境变量模板
+├── start.ps1                     # Windows 一键启动脚本
+└── stop.ps1                      # Windows 一键停止脚本
 ```
 
-## 演示前检查清单
+更细的代码入口：
 
-1. **Docker Desktop 已启动**（必须，后端依赖 PostgreSQL / Redis 容器）
-2. **Node.js ≥ 18、.NET SDK ≥ 8、uv 已安装**（Full 模式额外需要 uv）
-3. **已创建 `.env.run`**：`Copy-Item .env.example .env.run`
-4. **端口未被其他进程占用**：3000（前端，被占时自动回退 3001）、8080（后端）、8000（AI 服务）
-5. **如曾用 `docker compose up` 起过全套服务**，请先停止 frontend/backend/ai-service 容器，避免端口冲突
+- 前端页面：`frontend/src/app`
+- 后端接口：`backend/src/AiInterview.Api/Controllers`
+- AI 服务路由：`ai-service/app/api/routes`
 
----
+## 环境要求
 
-## 快速启动
+- Node.js 18+
+- npm
+- .NET SDK 8
+- Docker Desktop
+- Python 3.12+
+- `uv`
+- Windows PowerShell 5.1 或 PowerShell 7+（如果要使用 `start.ps1` / `stop.ps1`）
 
-### 1. 准备环境变量
+## 先准备环境变量
 
-建议先复制一份运行环境文件：
+建议先复制运行配置文件：
 
 ```powershell
 Copy-Item .env.example .env.run
 ```
 
-`.env.run` 是本地 Docker Compose 的统一来源，里面定义了 PostgreSQL、Redis、前端端口和各类服务地址。
+`.env.run` 是 Docker Compose 与部分本地开发流程的统一配置来源。默认值包括：
 
-### 2. 启动整套服务
+- 前端端口：`3001`
+- 后端端口：`8080`
+- AI 服务端口：`8000`
+- PostgreSQL：`localhost:5433`
+- Redis：`localhost:6379`
+- 数据库：`ai_interview`
+- 默认种子数据：`SEED_ENABLED=true`
+
+## 启动方式总览
+
+| 场景 | 推荐命令 | 说明 |
+| --- | --- | --- |
+| 想最快体验整套服务 | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\start.ps1 -Full` | Windows 下最省事，脚本会在后台拉起服务并写日志 |
+| 想用容器跑完整环境 | `docker compose --env-file .env.run up --build -d` | 同时启动前端、后端、AI 服务、PostgreSQL、Redis、Celery Worker |
+| 想本地联调前后端 | `npm run dev` | 自动确保 PostgreSQL 和 Redis 可用，然后启动前端与后端 |
+| 想本地联调前后端 + AI 服务 | `npm run dev:full` | 在 `dev` 基础上额外启动 `ai-service` |
+
+## 方式一：Docker Compose
+
+启动：
 
 ```powershell
 docker compose --env-file .env.run up --build -d
 ```
 
-查看运行状态：
+查看状态：
 
 ```powershell
 docker compose --env-file .env.run ps
 ```
 
-### 3. 默认访问地址
-
-- 前端：http://localhost:3001
-- 后端：http://localhost:8080
-- 后端 Swagger：http://localhost:8080/swagger
-- AI 服务健康检查：http://localhost:8000/health
-- PostgreSQL：localhost:5433
-- Redis：localhost:6379
-
-## 本地开发
-
-### 1. 安装根目录依赖
-
-先在仓库根目录执行：
+停止：
 
 ```powershell
-npm install
+docker compose --env-file .env.run down
 ```
 
-首次执行时，根目录 `postinstall` 会自动补齐 `frontend` 依赖。
+默认访问地址：
 
-### 2. Windows 一键启动（推荐演示方式）
+- 前端：`http://localhost:3001`
+- 后端：`http://localhost:8080`
+- 后端 Swagger：`http://localhost:8080/swagger`
+- 后端健康检查：`http://localhost:8080/health`
+- AI 服务健康检查：`http://localhost:8000/health`
 
-`start.ps1` 会在后台启动各服务，健康检查通过后**返还终端控制权**，不会永久阻塞当前窗口。
+适合场景：
 
-**环境要求：**
+- 需要完整还原多服务协同环境
+- 需要容器化数据库和 Redis
+- 需要连同 `celery-worker` 一起验证编排
 
-- Windows PowerShell 5.1 或 PowerShell 7+
-- Node.js / npm
-- .NET SDK 8
-- Docker Desktop（用于 PostgreSQL / Redis）
-- `uv`（仅 `-Full` 模式需要）
-- 根目录已存在 `.env.run`
+## 方式二：Windows 一键脚本
 
-**普通开发（frontend + backend）：**
+普通开发：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\start.ps1
 ```
 
-**完整演示（frontend + backend + ai-service）：**
+完整演示：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\start.ps1 -Full
 ```
 
-启动后脚本输出各服务地址和 PID，终端即时解锁。日志写入项目根目录 `.dev-logs/`。
-
-**停止所有服务：**
+停止服务：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\stop.ps1
 ```
 
-如需保留日志：`stop.ps1 -KeepLogs`  
-如 PID 文件丢失，按端口强制清理：`stop.ps1 -CleanByPort`
+常用补充参数：
 
-**前端端口说明：** `start.ps1` 优先使用 3000，被占时 Next.js 自动回退 3001；脚本会从日志解析实际端口并在状态表中输出。
+- 保留日志：`.\stop.ps1 -KeepLogs`
+- PID 文件丢失时按端口清理：`.\stop.ps1 -CleanByPort`
 
-**脚本行为摘要：**
+脚本特点：
 
-- `start.ps1` 启动前会先执行依赖预检，并确保 PostgreSQL / Redis 可用
-- 若检测到上一次运行遗留的项目进程，会先按 PID 文件和项目端口清理旧进程
-- 清理逻辑只针对项目相关端口与进程，已排除 Docker / 系统关键进程
-- 子进程以独立隐藏窗口启动，避免控制台输出混叠
-- 启动成功后会输出服务地址、PID 和日志目录 `.dev-logs/`
-- `stop.ps1` 默认按 PID 树停止本项目服务；`-CleanByPort` 仅在 PID 文件缺失或残留时使用
-- `stop.ps1 -KeepLogs` 会保留 `.dev-logs/`，便于排查问题
+- 自动做依赖预检
+- 自动确保 PostgreSQL / Redis 可用
+- 启动成功后返还当前终端控制权
+- 日志写入根目录 `.dev-logs/`
+- 优先使用前端 `3000`，若被占用会回退到 `3001`
 
-> 如果在已有 PowerShell 会话中运行，可直接 `.\start.ps1` 或 `.\start.ps1 -Full`；  
-> 若 ExecutionPolicy 拦截，使用上方完整 `powershell.exe` 命令。
+适合场景：
 
-### 3. 启动前后端联动
+- Windows 本机演示
+- 希望后台启动服务，同时保留当前终端继续操作
+
+## 方式三：根目录本地联动开发
+
+先安装根目录依赖：
+
+```powershell
+npm install
+```
+
+说明：
+
+- 根目录 `postinstall` 会自动补齐 `frontend` 依赖
+- 后端由 `dotnet run` 直接启动
+- AI 服务由 `uv run` 启动，首次执行可能会花一点时间准备环境
+
+启动前后端：
 
 ```powershell
 npm run dev
 ```
 
-这个命令会同时启动：
-
-- `frontend`
-- `backend`
-
-启动前会先检查并自动拉起 Docker PostgreSQL 和 Redis，然后再启动前端和后端。
-
-输出日志会在同一个终端里显示，并带上清晰前缀：
-
-- `[frontend]`
-- `[backend]`
-
-任一子进程退出时，`concurrently` 会一并结束其余子进程，减少孤儿进程残留。
-
-本地开发默认端口如下：
-
-- 前端：http://localhost:3000
-- 后端：http://localhost:8080
-- AI 服务：http://localhost:8000
-
-### 4. 启动前后端 + AI 服务
+启动前后端 + AI 服务：
 
 ```powershell
 npm run dev:full
 ```
 
-这个命令会在 `dev` 的基础上额外启动 `ai-service`。
-
-如果你只需要前后端联调，不必使用这个命令。
-
-### 5. 单独启动单个服务
+单独启动单个服务：
 
 ```powershell
 npm run dev:frontend
@@ -168,89 +194,114 @@ npm run dev:backend
 npm run dev:ai-service
 ```
 
-### 6. 本地开发依赖说明
+本地联调默认地址：
 
-后端本地开发默认依赖 PostgreSQL 和 Redis。  
-后端实际读取的是 `backend/src/AiInterview.Api/appsettings.json` 与 `backend/src/AiInterview.Api/appsettings.Development.json`，然后再叠加环境变量。  
-当前开发配置已经统一到和 `.env.run` / `docker-compose.yml` 一致的本地 PostgreSQL：
+- 前端：`http://localhost:3000`
+- 后端：`http://localhost:8080`
+- AI 服务：`http://localhost:8000`
 
-- 用户名：`postgres`
-- 密码：`postgres`
-- 数据库：`ai_interview`
-- 本地端口：`5433`
+补充说明：
 
-Redis 默认使用：
+- `npm run dev` / `npm run dev:full` 在启动应用前，会先执行 `scripts/predev.mjs`
+- 该流程会尝试确保 Docker 中的 PostgreSQL 和 Redis 已启动
+- 任一子进程退出时，其余联动子进程也会一起结束，减少残留进程
 
-- `localhost:6379,abortConnect=false`
+## 配置与数据说明
 
-如果本机没有这两个服务，可以直接运行 `npm run dev`，脚本会自动尝试启动 Docker Compose 的 `postgres` 和 `redis` 服务。
+### 数据库与缓存默认值
 
-如果你已经用 `docker compose --env-file .env.run up --build -d` 起过整套前后端，请先停掉 `frontend / backend / ai-service`，否则本地 `npm run dev` 会和 3000 / 8080 / 8000 端口冲突。
+后端本地开发默认连接：
+
+- PostgreSQL：`Host=localhost;Port=5433;Database=ai_interview;Username=postgres;Password=postgres`
+- Redis：`localhost:6379,abortConnect=false`
+
+后端启动时会自动执行数据库迁移；当 `SEED_ENABLED=true` 时，会自动写入种子数据。
+
+### AI 服务默认配置
+
+`.env.example` 当前默认使用：
+
+```env
+AI_SERVICE_MODEL_PROVIDER=mock
+```
+
+这意味着仓库默认以本地可运行、可演示为优先，AI 服务默认走 `mock provider`。如果要接入真实模型，需要同步调整对应的 AI 服务与后端配置，而不是只修改单个环境变量。
+
+### 本地数据目录
+
+- `storage/postgres`：PostgreSQL 数据
+- `storage/redis`：Redis 持久化数据
+- `storage/uploads`：知识库上传文件
+- `storage/dp-keys`：ASP.NET Core Data Protection 密钥
 
 ## 默认演示账号
+
+在启用种子数据时可直接使用：
 
 - 普通用户：`zhangsan / Pass1234`
 - 管理员：`admin / Admin1234`
 
-这些账号会在后端启动时由种子逻辑自动初始化，前提是 `SEED_ENABLED=true`。
+## 常用文档索引
 
-## 常见错误
+- [接口文档](./Docs/API.md)
+- [系统架构](./Docs/ARCHITECTURE.md)
+- [数据库设计](./Docs/DATABASE.md)
+- [设计系统](./Docs/DESIGN.md)
+- [真实 AI 面试主链路交付说明](./Docs/真实AI面试主链路-交付说明.md)
 
-### `password authentication failed for user "postgres"`
+阅读建议：
 
-这个错误通常表示你连到的不是当前仓库预期的本地 PostgreSQL，或者本地 `storage/postgres` 数据卷是用旧密码初始化的。
+- 想了解业务接口，先看 `Docs/API.md`
+- 想了解整体分层和职责边界，先看 `Docs/ARCHITECTURE.md`
+- 想了解当前数据表和字段设计，先看 `Docs/DATABASE.md`
 
-优先检查：
+## 本地验证命令
 
-1. `docker compose --env-file .env.run up -d postgres redis` 是否已经启动
-2. 你访问的是否是 `localhost:5433`
-3. `POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB` 是否仍然是 `.env.run` 里的默认值
-4. 如果你以前改过 PostgreSQL 密码，旧的数据卷不会自动刷新，需要重建本地 Postgres 数据后再试
-5. 如果同时运行了整套 Docker Compose 前后端，先停掉它们再启动本地联动脚本
-
-## 构建与验证
-
-### 前端
+前端构建：
 
 ```powershell
 cd frontend
 npm run build
 ```
 
-### 后端
+后端构建：
 
 ```powershell
 cd backend
 dotnet build .\src\AiInterview.Api\AiInterview.Api.csproj
 ```
 
-### AI 服务
+AI 服务测试：
 
 ```powershell
 cd ai-service
 uv run pytest
 ```
 
-## 启动脚本验收结果
+如果你只修改了某一层，优先跑对应层的构建或测试即可。
 
-以下结果已经完成，可直接用于 PR 描述或交付说明：
+## 常见问题
 
-- `start.ps1` 连续两轮启动验证通过，退出码为 `0`
-- `stop.ps1` 连续两轮停止验证通过，退出码为 `0`
-- `frontend` 默认运行在 `3000`，`backend` 默认运行在 `8080`
-- `start.ps1` 在启动前会自动停止旧服务并清理残留项目端口进程
-- `stop.ps1` 可正确按 PID 树停止项目进程，无残留僵尸进程
-- 第二轮 `start -> stop` 循环可在干净状态下再次成功启动
-- 清理逻辑已显式保护 Docker / 系统关键进程，不会误杀
-- 子进程已改为独立隐藏窗口，控制台输出不会互相混叠
+### 1. `password authentication failed for user "postgres"`
 
-**建议复验命令：**
+优先检查：
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\start.ps1 -Full
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\stop.ps1
-```
+1. PostgreSQL 是否真的启动在 `localhost:5433`
+2. `.env.run` 里的 `POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB` 是否仍是预期值
+3. 是否有旧的 `storage/postgres` 数据卷沿用了历史密码
+4. 是否同时跑了 Docker Compose 全套服务和本地 `npm run dev`，造成连接目标混乱
 
-## 文档优先级
+### 2. 前端端口为什么有时是 `3000`，有时是 `3001`
 
-实现与验收以仓库当前代码和运行结果为准；如果文档与实际行为冲突，优先参考最近且已经验证过的实现。
+- 本地 `npm run dev` 默认是 `3000`
+- Docker Compose 默认把前端暴露到 `3001`
+- `start.ps1` 会优先尝试 `3000`，被占用时回退到 `3001`
+
+### 3. 本地 `npm run dev` 为什么也要求 Docker Desktop
+
+因为本地联调默认仍依赖 Docker 中的 PostgreSQL 和 Redis。应用层是本机启动，基础设施层默认还是容器提供。
+
+## 维护原则
+
+如果 README 与当前代码行为冲突，请优先以最近验证过的实现为准，并同步更新文档。  
+如果你正在扩展接口、页面或启动脚本，建议一并更新本文件和 `Docs/` 下对应专题文档。

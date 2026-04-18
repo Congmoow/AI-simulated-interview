@@ -50,8 +50,6 @@ const REPORT_STAGE_LABELS: Record<string, string> = {
 
 const DRAFT_STORAGE_PREFIX = "interview-draft:";
 
-type InterviewConnectionStatus = "connected" | "reconnecting" | "disconnected";
-
 type LocalPendingAnswer = {
   id: string;
   roundNumber: number;
@@ -160,7 +158,6 @@ export function InterviewClient() {
     stage: string;
     estimatedTime: number;
   } | null>(null);
-  const [, setConnectionStatus] = useState<InterviewConnectionStatus>("disconnected");
   const [connectionNotices, setConnectionNotices] = useState<SystemTimelineMessage[]>([]);
   const [pendingAnswer, setPendingAnswer] = useState<LocalPendingAnswer | null>(null);
   const [assistantThinking, setAssistantThinking] = useState(false);
