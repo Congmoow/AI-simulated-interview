@@ -1,5 +1,4 @@
 import axios from "axios";
-import { readStoredAuth, writeStoredAuth } from "@/utils/storage";
 import { useAuthStore } from "@/stores/auth-store";
 import { useAuthModalStore } from "@/stores/auth-modal-store";
 
@@ -14,9 +13,9 @@ export const httpClient = axios.create({
 });
 
 httpClient.interceptors.request.use((config) => {
-  const auth = readStoredAuth();
-  if (auth?.accessToken) {
-    config.headers.Authorization = `Bearer ${auth.accessToken}`;
+  const accessToken = useAuthStore.getState().accessToken;
+  if (accessToken) {
+    config.headers.Authorization = `Bearer ${accessToken}`;
   }
   return config;
 });
@@ -37,7 +36,6 @@ httpClient.interceptors.response.use(
     if (status === 401 && !handling401) {
       handling401 = true;
       useAuthStore.getState().clearSession();
-      writeStoredAuth(null);
       useAuthModalStore.getState().openLogin(null);
       setTimeout(() => {
         handling401 = false;

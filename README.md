@@ -236,12 +236,19 @@ AI_SERVICE_MODEL_PROVIDER=mock
 - `storage/uploads`：知识库上传文件
 - `storage/dp-keys`：ASP.NET Core Data Protection 密钥
 
-## 默认演示账号
+## 可选种子用户说明
 
-在启用种子数据时可直接使用：
+仅当 `SEED_ENABLED=true` 且显式配置了种子密码时，才会创建以下种子用户名：
 
-- 普通用户：`zhangsan / Pass1234`
-- 管理员：`admin / Admin1234`
+- 普通用户：`zhangsan`
+- 管理员：`admin`
+
+对应密码不再写死在仓库中，需通过以下环境变量显式注入：
+
+- `SEED_USER_PASSWORD`
+- `SEED_ADMIN_PASSWORD`
+
+开发环境若未提供上述密码，后端会跳过演示用户初始化。
 
 ## 共享文档入口
 

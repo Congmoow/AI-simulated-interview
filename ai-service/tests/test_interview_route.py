@@ -1,9 +1,22 @@
 from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
 
+from app.core.settings import get_settings
 from app.main import app
 from app.providers.mock_provider import MockProvider
+
+INTERNAL_API_KEY = "test-internal-api-key-1234567890"
+
+
+@pytest.fixture(autouse=True)
+def configure_internal_auth(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("AI_SERVICE_API_KEY", INTERNAL_API_KEY)
+    monkeypatch.delenv("AI_SERVICE_ALLOW_INSECURE_DEV_AUTH_BYPASS", raising=False)
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 def test_start_interview_should_return_fallback_question_when_provider_creation_fails() -> None:
@@ -38,7 +51,7 @@ def test_start_interview_should_return_fallback_question_when_provider_creation_
 
     with patch("app.api.routes.interview.get_provider", side_effect=RuntimeError("provider unavailable")):
         client = TestClient(app)
-        response = client.post("/interview/start", json=payload)
+        response = client.post("/interview/start", json=payload, headers=_internal_headers())
 
     assert response.status_code == 200
     data = response.json()
@@ -109,10 +122,14 @@ def test_answer_interview_should_ask_user_to_return_to_current_question_when_inp
 
     with patch("app.api.routes.interview.get_provider", return_value=MockProvider()):
         client = TestClient(app)
-        response = client.post("/interview/answer", json=payload)
+        response = client.post("/interview/answer", json=payload, headers=_internal_headers())
 
     assert response.status_code == 200
     data = response.json()
     assert data["action"] == "follow_up"
     assert "当前问题" in data["content"]
     assert "真实项目" in data["content"]
+
+
+def _internal_headers() -> dict[str, str]:
+    return {"Authorization": f"Bearer {INTERNAL_API_KEY}"}

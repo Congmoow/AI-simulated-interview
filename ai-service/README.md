@@ -29,7 +29,7 @@
 
 1. 通过 `app.services.dependencies.get_provider()` 从后端读取 runtime AI settings。
 2. 请求地址为：`{AI_SERVICE_BACKEND_URL}/api/v1/internal/ai/runtime-settings`
-3. 如果配置了 `AI_SERVICE_API_KEY`，会以 `Authorization: Bearer <key>` 方式请求后端。
+3. `AI_SERVICE_API_KEY` 是后端与 AI 服务共享的内部鉴权密钥来源；正常运行时会以 `Authorization: Bearer <key>` 方式请求后端。
 4. 获取到配置后，创建 `OpenAICompatibleProvider`。
 5. runtime settings 会在进程内缓存 60 秒。
 
@@ -81,7 +81,6 @@ GET /health
 
 鉴权规则如下：
 
-- 如果没有配置 `AI_SERVICE_API_KEY`，则不校验 `Authorization` 请求头。
 - 如果配置了 `AI_SERVICE_API_KEY`，调用方必须携带：
 
 ```text
@@ -89,6 +88,7 @@ Authorization: Bearer <AI_SERVICE_API_KEY>
 ```
 
 否则会返回 `401 Unauthorized`。
+- 如果未配置 `AI_SERVICE_API_KEY`，默认同样拒绝未鉴权请求；只有在 `AI_SERVICE_APP_ENV=development` 且显式设置 `AI_SERVICE_ALLOW_INSECURE_DEV_AUTH_BYPASS=true` 时，才允许开发绕过。
 
 ## 依赖管理
 
@@ -258,6 +258,7 @@ AI 服务会从后端拉取如下运行时配置：
 代码中已经使用到的关键配置如下：
 
 - `AI_SERVICE_API_KEY`
+- `AI_SERVICE_ALLOW_INSECURE_DEV_AUTH_BYPASS`
 - `AI_SERVICE_REDIS_URL`
 - `AI_SERVICE_BACKEND_URL`
 - `AI_SERVICE_APP_ENV`

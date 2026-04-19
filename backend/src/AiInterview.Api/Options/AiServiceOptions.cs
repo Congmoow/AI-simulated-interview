@@ -8,5 +8,7 @@ public class AiServiceOptions
 
     public string ApiKey { get; set; } = string.Empty;
 
+    public bool AllowInsecureDevAuthBypass { get; set; }
+
     public int TimeoutSeconds { get; set; } = 60;
 }

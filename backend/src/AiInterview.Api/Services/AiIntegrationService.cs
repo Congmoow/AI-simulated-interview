@@ -13,6 +13,7 @@ public class AiIntegrationService(HttpClient httpClient, IOptions<AiServiceOptio
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly AiServiceOptions _options = options.Value;
+    private readonly string _apiKey = options.Value.ApiKey?.Trim() ?? string.Empty;
 
     public async Task<StartInterviewAiResponse> StartInterviewAsync(StartInterviewAiRequest request, CancellationToken cancellationToken = default)
     {
@@ -61,9 +62,9 @@ public class AiIntegrationService(HttpClient httpClient, IOptions<AiServiceOptio
             Content = JsonContent.Create(payload, options: JsonOptions)
         };
 
-        if (!string.IsNullOrWhiteSpace(_options.ApiKey))
+        if (!string.IsNullOrWhiteSpace(_apiKey))
         {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.ApiKey);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
         }
 
         using var response = await httpClient.SendAsync(request, cancellationToken);

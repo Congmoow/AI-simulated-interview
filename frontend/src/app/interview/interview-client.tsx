@@ -33,7 +33,6 @@ import { shouldAdvanceElapsedTimer } from "@/features/interview/interview-timer"
 import { buildRealtimeInterviewMessages } from "@/features/interview/realtime-message-flow";
 import { getTagIconUrl } from "@/utils/icon-utils";
 import { getRequestErrorMessage } from "@/utils/request-error";
-import { writeStoredAuth } from "@/utils/storage";
 import type { InterviewCurrentDetail, PositionSummary } from "@/types/api";
 
 const INTERVIEW_MODE_OPTIONS = [
@@ -581,7 +580,6 @@ export function InterviewClient() {
         .catch((error) => {
           if (isUnauthorizedSignalRError(error)) {
             useAuthStore.getState().clearSession();
-            writeStoredAuth(null);
             openLogin({
               type: "navigate",
               target: `/interview?interviewId=${encodeURIComponent(interviewId)}`,
@@ -602,7 +600,6 @@ export function InterviewClient() {
       }
       if (isUnauthorizedSignalRError(error)) {
         useAuthStore.getState().clearSession();
-        writeStoredAuth(null);
         openLogin({
           type: "navigate",
           target: `/interview?interviewId=${encodeURIComponent(interviewId)}`,

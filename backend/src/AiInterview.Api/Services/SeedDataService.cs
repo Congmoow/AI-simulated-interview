@@ -2,15 +2,43 @@ using AiInterview.Api.Constants;
 using AiInterview.Api.Data;
 using AiInterview.Api.Mappings;
 using AiInterview.Api.Models.Entities;
+using AiInterview.Api.Options;
 using AiInterview.Api.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace AiInterview.Api.Services;
 
-public class SeedDataService(ApplicationDbContext dbContext, PasswordService passwordService) : ISeedDataService
+public class SeedDataService(
+    ApplicationDbContext dbContext,
+    PasswordService passwordService,
+    IOptions<SeedOptions> seedOptions,
+    IHostEnvironment hostEnvironment,
+    ILogger<SeedDataService> logger) : ISeedDataService
 {
+    private readonly SeedOptions _seedOptions = seedOptions.Value;
+
     public async Task SeedAsync(CancellationToken cancellationToken = default)
     {
+        var shouldSeedUsers = !await dbContext.Users.AnyAsync(cancellationToken);
+        if (shouldSeedUsers)
+        {
+            var missingUserPassword = string.IsNullOrWhiteSpace(_seedOptions.UserPassword);
+            var missingAdminPassword = string.IsNullOrWhiteSpace(_seedOptions.AdminPassword);
+
+            if (missingUserPassword || missingAdminPassword)
+            {
+                if (!hostEnvironment.IsDevelopment())
+                {
+                    throw new InvalidOperationException("缺少种子用户密码配置，已拒绝执行用户初始化。");
+                }
+
+                logger.LogWarning("开发环境未配置完整的种子用户密码，已跳过演示用户初始化。");
+                shouldSeedUsers = false;
+            }
+        }
+
         if (!await dbContext.Positions.AnyAsync(cancellationToken))
         {
             await dbContext.Positions.AddRangeAsync(
@@ -44,14 +72,14 @@ public class SeedDataService(ApplicationDbContext dbContext, PasswordService pas
             await dbContext.LearningResources.AddRangeAsync(CreateSeedResources(), cancellationToken);
         }
 
-        if (!await dbContext.Users.AnyAsync(cancellationToken))
+        if (shouldSeedUsers)
         {
             await dbContext.Users.AddRangeAsync(
             [
                 new User
                 {
                     Username = "zhangsan",
-                    PasswordHash = passwordService.HashPassword("Pass1234"),
+                    PasswordHash = passwordService.HashPassword(_seedOptions.UserPassword),
                     Email = "zhangsan@example.com",
                     Phone = "13800138000",
                     TargetPositionCode = "java-backend",
@@ -60,7 +88,7 @@ public class SeedDataService(ApplicationDbContext dbContext, PasswordService pas
                 new User
                 {
                     Username = "admin",
-                    PasswordHash = passwordService.HashPassword("Admin1234"),
+                    PasswordHash = passwordService.HashPassword(_seedOptions.AdminPassword),
                     Email = "admin@example.com",
                     Role = AppRoles.Admin,
                     TargetPositionCode = "web-frontend"

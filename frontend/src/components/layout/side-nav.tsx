@@ -7,7 +7,6 @@ import { useState } from "react";
 import { cn } from "@/lib/cn";
 import { useAuthModalStore } from "@/stores/auth-modal-store";
 import { useAuthStore } from "@/stores/auth-store";
-import { writeStoredAuth } from "@/utils/storage";
 
 const navItems = [
   { href: "/dashboard", label: "个人画像", hint: "当前能力分析" },
@@ -27,7 +26,6 @@ export function SideNav() {
 
   function handleLogout() {
     clearSession();
-    writeStoredAuth(null);
     setMenuOpen(false);
     void router.push("/");
   }

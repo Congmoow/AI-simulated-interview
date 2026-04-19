@@ -154,9 +154,9 @@ npm run dev
 | `ConnectionStrings__Redis` | `localhost:6379,abortConnect=false` | Redis 连接串 |
 | `Jwt__Issuer` | `ai-interview` | JWT 签发者 |
 | `Jwt__Audience` | `ai-interview-users` | JWT 受众 |
-| `Jwt__SecretKey` | 示例开发密钥 | JWT 签名密钥 |
+| `Jwt__SecretKey` | 必填环境变量，长度至少 32 | JWT 签名密钥 |
 | `AiService__BaseUrl` | `http://localhost:8000` | `ai-service` 地址 |
-| `AiService__ApiKey` | 空 | 内部调用鉴权；为空时内部接口放开 |
+| `AiService__ApiKey` | 与 `AI_SERVICE_API_KEY` 保持一致 | 后端内部接口鉴权密钥 |
 | `Storage__KnowledgeRoot` | `storage/uploads/knowledge` | 知识库上传与处理根目录 |
 | `Seed__Enabled` | `true` | 启动时是否写入种子数据 |
 
@@ -195,8 +195,9 @@ npm run dev
 内部接口补充：
 
 - [`src/AiInterview.Api/Controllers/InternalController.cs`](./src/AiInterview.Api/Controllers/InternalController.cs)
-- 当 `AiService__ApiKey` 为空时，内部接口默认不校验 Bearer Token
-- 一旦配置了 `AiService__ApiKey`，`ai-service` 调用内部接口时必须带上 `Authorization: Bearer <ApiKey>`
+- 内部接口默认拒绝未鉴权请求，不再因为 `AiService__ApiKey` 为空而自动放开
+- 只有在 `Development` 环境且显式设置 `AiService__AllowInsecureDevAuthBypass=true` 时，才允许开发绕过
+- 正常运行时，`ai-service` 调用内部接口必须带上 `Authorization: Bearer <ApiKey>`，且该密钥应与 `AI_SERVICE_API_KEY` 使用同一份来源
 
 ## 数据与持久化
 
@@ -262,12 +263,21 @@ docker build -f .\backend\Dockerfile -t ai-interview-backend .\backend
 docker compose --env-file .env.run up --build -d
 ```
 
-## 默认演示数据
+## 可选种子用户
 
-当 `Seed__Enabled=true` 时，启动后端会自动写入种子数据。当前根 README 记录的默认演示账号为：
+当 `Seed__Enabled=true` 时，启动后端会自动写入岗位、题库、学习资源等种子数据。
 
-- 普通用户：`zhangsan / Pass1234`
-- 管理员：`admin / Admin1234`
+仅当显式提供以下配置时，才会创建种子用户：
+
+- `Seed__UserPassword`
+- `Seed__AdminPassword`
+
+若启用该种子，则创建以下用户名：
+
+- 普通用户：`zhangsan`
+- 管理员：`admin`
+
+若开发环境未提供这两个密码，后端会记录告警并跳过演示用户初始化。
 
 如果你发现账号不可用，优先确认：
 

@@ -149,7 +149,7 @@ export default function AdminPage() {
   if (user?.role !== "admin") {
     return (
       <EmptyState
-        description="当前账号不是管理员。请使用 admin / Admin1234 登录后再进入该页面。"
+        description="当前账号不是管理员。请使用已授权的管理员账号登录后再进入该页面。"
         title="你没有后台访问权限"
       />
     );

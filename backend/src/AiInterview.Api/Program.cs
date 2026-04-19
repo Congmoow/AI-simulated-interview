@@ -2,6 +2,7 @@ using AiInterview.Api.Data;
 using AiInterview.Api.DependencyInjection;
 using AiInterview.Api.Hubs;
 using AiInterview.Api.Middleware;
+using AiInterview.Api.Options;
 using AiInterview.Api.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
@@ -20,6 +21,8 @@ Log.Logger = new LoggerConfiguration()
     .CreateLogger();
 
 builder.Host.UseSerilog();
+
+builder.Services.Configure<SeedOptions>(builder.Configuration.GetSection(SeedOptions.SectionName));
 
 builder.Services
     .AddApiPresentation()

@@ -95,6 +95,15 @@ public class AdminService(
             throw new AppException(ErrorCodes.QuestionValidationFailed, "仅支持 PDF/TXT/MD/DOCX 文档");
         }
 
+        try
+        {
+            await KnowledgeFileSignatureValidator.EnsureValidAsync(file, extension, cancellationToken);
+        }
+        catch (InvalidDataException ex)
+        {
+            throw new AppException(ErrorCodes.QuestionValidationFailed, ex.Message);
+        }
+
         var storageRoot = Path.GetFullPath(_storageOptions.KnowledgeRoot);
         Directory.CreateDirectory(storageRoot);
 

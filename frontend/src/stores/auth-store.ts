@@ -1,8 +1,8 @@
 "use client";
 
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
 import type { CurrentUser } from "@/types/api";
+import { clearLegacyAuthStorage } from "@/utils/storage";
 
 interface AuthState {
   accessToken: string | null;
@@ -21,35 +21,30 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>()(
-  persist(
-    (set) => ({
-      accessToken: null,
-      refreshToken: null,
-      expiresIn: null,
-      user: null,
-      hydrated: false,
-      setSession: (payload) =>
-        set({
-          accessToken: payload.accessToken,
-          refreshToken: payload.refreshToken,
-          expiresIn: payload.expiresIn,
-          user: payload.user,
-        }),
-      clearSession: () =>
-        set({
-          accessToken: null,
-          refreshToken: null,
-          expiresIn: null,
-          user: null,
-        }),
-      markHydrated: () => set({ hydrated: true }),
-    }),
-    {
-      name: "ai-interview-auth-store",
-      storage: createJSONStorage(() => localStorage),
-      onRehydrateStorage: () => (state) => {
-        state?.markHydrated();
-      },
+  (set) => ({
+    accessToken: null,
+    refreshToken: null,
+    expiresIn: null,
+    user: null,
+    hydrated: true,
+    setSession: (payload) => {
+      clearLegacyAuthStorage();
+      set({
+        accessToken: payload.accessToken,
+        refreshToken: payload.refreshToken,
+        expiresIn: payload.expiresIn,
+        user: payload.user,
+      });
     },
-  ),
+    clearSession: () => {
+      clearLegacyAuthStorage();
+      set({
+        accessToken: null,
+        refreshToken: null,
+        expiresIn: null,
+        user: null,
+      });
+    },
+    markHydrated: () => undefined,
+  }),
 );

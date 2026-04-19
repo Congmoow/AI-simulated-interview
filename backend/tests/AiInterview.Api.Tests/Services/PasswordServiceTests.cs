@@ -8,7 +8,7 @@ public class PasswordServiceTests
     [Fact]
     public void HashPassword_ShouldCreateDifferentHash_AndVerifySuccessfully()
     {
-        const string password = "Pass1234";
+        const string password = "TestPassword123!";
         var service = new PasswordService();
 
         var hash = service.HashPassword(password);
@@ -21,11 +21,11 @@ public class PasswordServiceTests
     [Fact]
     public void VerifyPassword_ShouldReturnFalse_WhenPasswordDoesNotMatch()
     {
-        const string password = "Pass1234";
+        const string password = "TestPassword123!";
         var service = new PasswordService();
         var hash = service.HashPassword(password);
 
-        var result = service.VerifyPassword("WrongPass1234", hash);
+        var result = service.VerifyPassword("WrongTestPassword123!", hash);
 
         result.Should().BeFalse();
     }

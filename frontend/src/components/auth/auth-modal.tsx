@@ -7,7 +7,6 @@ import { getPositions } from "@/services/catalog-service";
 import { useAuthStore } from "@/stores/auth-store";
 import { useAuthModalStore } from "@/stores/auth-modal-store";
 import { executeAuthCallback } from "@/lib/auth-action-registry";
-import { writeStoredAuth } from "@/utils/storage";
 import { Button } from "@/components/ui/button";
 import type { PositionSummary } from "@/types/api";
 
@@ -60,7 +59,6 @@ export function AuthModal() {
       const result = await login({ username: form.username, password: form.password });
 
       setSession(result);
-      writeStoredAuth(result);
       const action = pendingAction;
       clearPendingAction();
       close();
