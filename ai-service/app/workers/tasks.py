@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 import httpx
@@ -83,14 +84,14 @@ def process_knowledge_document_task(
     try:
         provider = get_provider()
         service = DocumentService(provider)
-        result = service.process(
+        result = asyncio.run(service.process(
             ProcessDocumentRequest(
                 documentId=document_id,
                 fileName=file_name,
                 fileType=file_type,
                 title=title,
             )
-        )
+        ))
         payload: dict = {
             "status": "ready",
             "chunks": [c.model_dump(by_alias=True) for c in result.chunks],

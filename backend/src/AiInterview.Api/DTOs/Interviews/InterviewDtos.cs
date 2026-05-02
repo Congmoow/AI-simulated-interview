@@ -1,10 +1,19 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace AiInterview.Api.DTOs.Interviews;
 
 public class CreateInterviewRequest
 {
+    [Required]
+    [StringLength(100)]
     public string PositionCode { get; set; } = string.Empty;
+
+    [StringLength(50)]
     public string InterviewMode { get; set; } = "standard";
+
     public string[]? QuestionTypes { get; set; }
+
+    [Range(1, 20)]
     public int? RoundCount { get; set; }
 }
 
@@ -74,8 +83,14 @@ public class RoundQuestionSummaryDto
 
 public class SubmitAnswerRequest
 {
+    [Required]
+    [StringLength(50000)]
     public string Answer { get; set; } = string.Empty;
+
+    [StringLength(20)]
     public string InputMode { get; set; } = "text";
+
+    [StringLength(50000)]
     public string? Transcription { get; set; }
 }
 

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -6,10 +6,10 @@ from pydantic import BaseModel, Field
 
 class CandidateQuestion(BaseModel):
     question_id: UUID = Field(alias="questionId")
-    title: str
-    type: str
-    content: str
-    difficulty: str
+    title: str = Field(min_length=1, max_length=500)
+    type: str = Field(min_length=1, max_length=50)
+    content: str = Field(min_length=1, max_length=10000)
+    difficulty: Literal["easy", "medium", "hard"]
 
 
 class CurrentMainQuestion(BaseModel):
@@ -22,9 +22,9 @@ class CurrentMainQuestion(BaseModel):
 
 
 class InterviewMessage(BaseModel):
-    role: str
-    message_type: str = Field(alias="messageType")
-    content: str
+    role: Literal["user", "assistant"]
+    message_type: str = Field(alias="messageType", min_length=1, max_length=50)
+    content: str = Field(min_length=1, max_length=50000)
     related_question_id: UUID | None = Field(default=None, alias="relatedQuestionId")
     sequence: int
 
@@ -53,9 +53,9 @@ class StartInterviewRequest(BaseModel):
 
 
 class StartInterviewResponse(BaseModel):
-    action: str
-    message_type: str = Field(alias="messageType")
-    content: str
+    action: str = Field(min_length=1, max_length=50)
+    message_type: str = Field(alias="messageType", min_length=1, max_length=50)
+    content: str = Field(min_length=1, max_length=50000)
     selected_question_id: UUID | None = Field(default=None, alias="selectedQuestionId")
     suggestions: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -75,38 +75,38 @@ class AnswerInterviewRequest(BaseModel):
 
 
 class AnswerInterviewResponse(BaseModel):
-    action: str
-    message_type: str = Field(alias="messageType")
-    content: str
+    action: str = Field(min_length=1, max_length=50)
+    message_type: str = Field(alias="messageType", min_length=1, max_length=50)
+    content: str = Field(min_length=1, max_length=50000)
     selected_question_id: UUID | None = Field(default=None, alias="selectedQuestionId")
     suggestions: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ScoreRound(BaseModel):
-    round_number: int = Field(alias="roundNumber")
-    question_type: str = Field(alias="questionType")
-    question_title: str = Field(alias="questionTitle")
-    question_content: str = Field(alias="questionContent")
-    answer: str | None = None
+    round_number: int = Field(alias="roundNumber", ge=1)
+    question_type: str = Field(alias="questionType", min_length=1, max_length=50)
+    question_title: str = Field(alias="questionTitle", min_length=1, max_length=500)
+    question_content: str = Field(alias="questionContent", min_length=1, max_length=10000)
+    answer: str | None = Field(default=None, max_length=50000)
     follow_ups: list[str] = Field(default_factory=list, alias="followUps")
 
 
 class ScoreInterviewRequest(BaseModel):
     interview_id: UUID = Field(alias="interviewId")
-    position_code: str = Field(alias="positionCode")
+    position_code: str = Field(alias="positionCode", min_length=1, max_length=100)
     rounds: list[ScoreRound] = Field(default_factory=list)
 
 
 class DimensionScore(BaseModel):
-    score: float
-    weight: float
+    score: float = Field(ge=0, le=100)
+    weight: float = Field(ge=0, le=1)
 
 
 class ScoreInterviewResponse(BaseModel):
-    overall_score: float = Field(alias="overallScore")
+    overall_score: float = Field(alias="overallScore", ge=0, le=100)
     dimension_scores: dict[str, DimensionScore] = Field(default_factory=dict, alias="dimensionScores")
     dimension_details: dict[str, str] = Field(default_factory=dict, alias="dimensionDetails")
     score_breakdown: dict[str, Any] = Field(default_factory=dict, alias="scoreBreakdown")
-    rank_percentile: float = Field(alias="rankPercentile")
-    model_version: str = Field(alias="modelVersion")
+    rank_percentile: float = Field(alias="rankPercentile", ge=0, le=100)
+    model_version: str = Field(alias="modelVersion", min_length=1, max_length=100)

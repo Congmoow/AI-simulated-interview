@@ -6,21 +6,20 @@ namespace AiInterview.Api.Services;
 
 internal static class OpenAiCompatibleHttpClientFactory
 {
-    internal static SocketsHttpHandler CreateHandler()
+    private static readonly SocketsHttpHandler SharedHandler = new()
     {
-        return new SocketsHttpHandler
+        AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
+        SslOptions =
         {
-            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
-            SslOptions =
-            {
-                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
-            }
-        };
-    }
+            EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
+        },
+        PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+        MaxConnectionsPerServer = 20
+    };
 
     internal static HttpClient CreateClient(string baseUrl, string apiKey)
     {
-        var client = new HttpClient(CreateHandler())
+        var client = new HttpClient(SharedHandler, disposeHandler: false)
         {
             BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/"),
             DefaultRequestVersion = HttpVersion.Version11,

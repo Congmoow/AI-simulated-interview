@@ -34,9 +34,14 @@ public class OpenAiCompatibleProviderTests
     }
 
     [Fact]
-    public void Factory_ShouldCreateHandlerWithTls12AndTls13()
+    public void Factory_ShouldUseSharedHandlerWithTls12AndTls13()
     {
-        var handler = OpenAiCompatibleHttpClientFactory.CreateHandler();
+        var handlerField = typeof(OpenAiCompatibleHttpClientFactory)
+            .GetField("SharedHandler", BindingFlags.Static | BindingFlags.NonPublic);
+
+        handlerField.Should().NotBeNull();
+
+        var handler = handlerField!.GetValue(null).Should().BeOfType<SocketsHttpHandler>().Subject;
 
         handler.SslOptions.EnabledSslProtocols.Should().Be(SslProtocols.Tls12 | SslProtocols.Tls13);
     }

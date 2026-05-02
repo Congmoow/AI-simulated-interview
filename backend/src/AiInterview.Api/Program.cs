@@ -88,13 +88,35 @@ app.MapGet("/health", async (HttpContext httpContext, ApplicationDbContext dbCon
 await using (var scope = app.Services.CreateAsyncScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    await dbContext.Database.MigrateAsync();
+    var connection = dbContext.Database.GetDbConnection();
+    await connection.OpenAsync();
 
-    var seedEnabled = app.Configuration.GetValue("Seed:Enabled", app.Environment.IsDevelopment());
-    if (seedEnabled)
+    try
     {
-        var seedDataService = scope.ServiceProvider.GetRequiredService<ISeedDataService>();
-        await seedDataService.SeedAsync();
+        await using (var lockCmd = connection.CreateCommand())
+        {
+            lockCmd.CommandText = "SELECT pg_advisory_lock(hashtext('ai_interview_migration'))";
+            await lockCmd.ExecuteNonQueryAsync();
+        }
+
+        await dbContext.Database.MigrateAsync();
+
+        var seedEnabled = app.Configuration.GetValue("Seed:Enabled", app.Environment.IsDevelopment());
+        if (seedEnabled)
+        {
+            var seedDataService = scope.ServiceProvider.GetRequiredService<ISeedDataService>();
+            await seedDataService.SeedAsync();
+        }
+    }
+    finally
+    {
+        await using (var unlockCmd = connection.CreateCommand())
+        {
+            unlockCmd.CommandText = "SELECT pg_advisory_unlock(hashtext('ai_interview_migration'))";
+            await unlockCmd.ExecuteNonQueryAsync();
+        }
+
+        await connection.CloseAsync();
     }
 }
 

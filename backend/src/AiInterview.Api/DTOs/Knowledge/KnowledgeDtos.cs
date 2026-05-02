@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace AiInterview.Api.DTOs.Knowledge;
 
 public class ChunkCallbackDto
@@ -10,16 +12,28 @@ public class ChunkCallbackDto
 
 public class DocumentProcessCallbackRequest
 {
+    [Required]
+    [StringLength(50)]
     public string Status { get; set; } = string.Empty;
+
     public List<ChunkCallbackDto> Chunks { get; set; } = [];
+
+    [StringLength(2000)]
     public string? Error { get; set; }
 }
 
 public class KnowledgeSearchRequest
 {
+    [Required]
+    [StringLength(2000)]
     public string Query { get; set; } = string.Empty;
+
     public Guid? DocumentId { get; set; }
+
+    [StringLength(100)]
     public string? PositionCode { get; set; }
+
+    [Range(1, 100)]
     public int TopK { get; set; } = 5;
 }
 
