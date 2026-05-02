@@ -6,5 +6,5 @@ class EvaluationService:
     def __init__(self, provider: ModelProvider) -> None:
         self.provider = provider
 
-    def score(self, request: ScoreInterviewRequest) -> ScoreInterviewResponse:
-        return self.provider.score_interview(request)
+    async def score(self, request: ScoreInterviewRequest) -> ScoreInterviewResponse:
+        return await self.provider.score_interview(request)

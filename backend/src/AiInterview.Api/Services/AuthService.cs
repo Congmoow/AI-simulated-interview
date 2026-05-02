@@ -133,9 +133,15 @@ public class AuthService(
         var user = await userRepository.GetByIdAsync(userId.Value, cancellationToken)
             ?? throw new AppException(ErrorCodes.UserNotFound, "用户不存在", StatusCodes.Status404NotFound);
 
+        await refreshTokenStore.RemoveAsync(request.RefreshToken, cancellationToken);
+
+        var newRefreshToken = jwtTokenService.CreateRefreshToken();
+        await refreshTokenStore.StoreAsync(newRefreshToken, user.Id, jwtTokenService.GetRefreshTokenExpiry(), cancellationToken);
+
         return new RefreshTokenResponse
         {
             AccessToken = jwtTokenService.CreateAccessToken(user),
+            RefreshToken = newRefreshToken,
             ExpiresIn = _jwtOptions.AccessTokenExpiresMinutes * 60
         };
     }
@@ -154,7 +160,7 @@ public class AuthService(
             errors.Add(new ApiError { Field = "password", Message = "密码长度不能少于6位且不能超过20位" });
         }
 
-        if (string.IsNullOrWhiteSpace(request.Email) || !request.Email.Contains('@'))
+        if (string.IsNullOrWhiteSpace(request.Email) || !System.Net.Mail.MailAddress.TryCreate(request.Email, out _))
         {
             errors.Add(new ApiError { Field = "email", Message = "邮箱格式不正确" });
         }

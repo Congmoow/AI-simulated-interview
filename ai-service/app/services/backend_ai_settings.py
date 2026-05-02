@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 
 import httpx
@@ -23,13 +24,15 @@ class RuntimeAiSettings(BaseModel):
     system_prompt: str = Field(alias="systemPrompt", default="")
 
 
+_cache_lock = threading.Lock()
 _runtime_ai_settings_cache: tuple[float, RuntimeAiSettings | None] | None = None
 _backend_client = httpx.Client(timeout=10.0, http2=False)
 
 
 def clear_runtime_ai_settings_cache() -> None:
     global _runtime_ai_settings_cache
-    _runtime_ai_settings_cache = None
+    with _cache_lock:
+        _runtime_ai_settings_cache = None
 
 
 def _summarize_text(text: str, limit: int = 240) -> str:
@@ -91,15 +94,17 @@ def fetch_runtime_ai_settings(force_refresh: bool = False) -> RuntimeAiSettings 
     global _runtime_ai_settings_cache
 
     now = time.monotonic()
-    if not force_refresh and _runtime_ai_settings_cache is not None:
-        expires_at, cached_value = _runtime_ai_settings_cache
-        if now < expires_at:
-            logger.info("cache_hit ttl_seconds=%s", int(expires_at - now))
-            return cached_value
-        logger.info("cache_expired age_seconds=%s", int(now - (expires_at - RUNTIME_AI_SETTINGS_TTL_SECONDS)))
-    else:
-        logger.info("cache_miss")
+    with _cache_lock:
+        if not force_refresh and _runtime_ai_settings_cache is not None:
+            expires_at, cached_value = _runtime_ai_settings_cache
+            if now < expires_at:
+                logger.info("cache_hit ttl_seconds=%s", int(expires_at - now))
+                return cached_value
+            logger.info("cache_expired age_seconds=%s", int(now - (expires_at - RUNTIME_AI_SETTINGS_TTL_SECONDS)))
+        else:
+            logger.info("cache_miss")
 
     runtime_settings = _fetch_runtime_ai_settings_uncached()
-    _runtime_ai_settings_cache = (now + RUNTIME_AI_SETTINGS_TTL_SECONDS, runtime_settings)
+    with _cache_lock:
+        _runtime_ai_settings_cache = (now + RUNTIME_AI_SETTINGS_TTL_SECONDS, runtime_settings)
     return runtime_settings

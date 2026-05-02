@@ -15,11 +15,9 @@ public class InternalController(
     IAdminService adminService,
     IAiSettingsService aiSettingsService,
     IOptions<AiServiceOptions> aiServiceOptions,
-    IHostEnvironment environment,
     ILogger<InternalController> logger) : ApiControllerBase
 {
     private readonly AiServiceOptions _aiServiceOptions = aiServiceOptions.Value;
-    private readonly IHostEnvironment _environment = environment;
 
     [HttpPost("knowledge/documents/{id:guid}/callback")]
     public async Task<IActionResult> DocumentCallback(
@@ -62,12 +60,13 @@ public class InternalController(
     private bool IsAuthorized()
     {
         var configuredApiKey = _aiServiceOptions.ApiKey?.Trim();
-        if (!string.IsNullOrWhiteSpace(configuredApiKey))
+        if (string.IsNullOrWhiteSpace(configuredApiKey))
         {
-            var authHeader = HttpContext.Request.Headers.Authorization.ToString();
-            return authHeader == $"Bearer {configuredApiKey}";
+            logger.LogWarning("AiService:ApiKey 未配置，拒绝所有内部请求");
+            return false;
         }
 
-        return _environment.IsDevelopment() && _aiServiceOptions.AllowInsecureDevAuthBypass;
+        var authHeader = HttpContext.Request.Headers.Authorization.ToString();
+        return authHeader == $"Bearer {configuredApiKey}";
     }
 }

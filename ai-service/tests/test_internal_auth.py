@@ -13,7 +13,6 @@ def clear_internal_auth_env(monkeypatch: pytest.MonkeyPatch):
     for key in (
         "AI_SERVICE_APP_ENV",
         "AI_SERVICE_API_KEY",
-        "AI_SERVICE_ALLOW_INSECURE_DEV_AUTH_BYPASS",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -22,7 +21,7 @@ def clear_internal_auth_env(monkeypatch: pytest.MonkeyPatch):
     get_settings.cache_clear()
 
 
-def test_document_process_rejects_request_when_api_key_missing_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_document_process_rejects_request_when_api_key_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AI_SERVICE_APP_ENV", "development")
 
     with patch("app.api.routes.document.get_provider", return_value=MockProvider()):
@@ -47,17 +46,15 @@ def test_document_process_allows_request_with_matching_bearer_token(monkeypatch:
     assert response.status_code == 200
 
 
-def test_document_process_allows_request_only_when_development_bypass_is_explicitly_enabled(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_document_process_rejects_request_when_api_key_empty(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AI_SERVICE_APP_ENV", "development")
-    monkeypatch.setenv("AI_SERVICE_ALLOW_INSECURE_DEV_AUTH_BYPASS", "true")
+    monkeypatch.setenv("AI_SERVICE_API_KEY", "")
 
     with patch("app.api.routes.document.get_provider", return_value=MockProvider()):
         client = TestClient(app)
         response = client.post("/document/process", json=_build_payload())
 
-    assert response.status_code == 200
+    assert response.status_code == 401
 
 
 def _build_payload() -> dict[str, str]:

@@ -19,7 +19,7 @@ class InterviewService:
     def __init__(self, provider: ModelProvider | None) -> None:
         self.provider = provider
 
-    def start(self, request: StartInterviewRequest) -> StartInterviewResponse:
+    async def start(self, request: StartInterviewRequest) -> StartInterviewResponse:
         if self.provider is None:
             logger.warning(
                 "start_interview_fallback provider_available=false original_reason=provider_unavailable",
@@ -27,7 +27,7 @@ class InterviewService:
             return self._build_fallback_start_response(request)
 
         try:
-            return self.provider.start_interview(request)
+            return await self.provider.start_interview(request)
         except ProviderCallError as exc:
             logger.warning(
                 "start_interview_upstream_failed fallback_to_template=true exception_type=%s timeout_seconds=%s",
@@ -61,8 +61,17 @@ class InterviewService:
             )
             raise
 
-    def answer(self, request: AnswerInterviewRequest) -> AnswerInterviewResponse:
-        return self.provider.answer_interview(request)
+    async def answer(self, request: AnswerInterviewRequest) -> AnswerInterviewResponse:
+        if self.provider is None:
+            raise ProviderCallError("provider unavailable")
+
+        try:
+            return await self.provider.answer_interview(request)
+        except (ProviderCallError, ValueError):
+            raise
+        except Exception as exc:
+            logger.exception("answer_interview_unexpected_failure exception_type=%s", exc.__class__.__name__)
+            raise ProviderCallError("answer interview failed") from exc
 
     def _build_fallback_start_response(self, request: StartInterviewRequest) -> StartInterviewResponse:
         selected_question = self._pick_fallback_question(request.question_bank, request.asked_question_ids)

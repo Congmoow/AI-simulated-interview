@@ -81,11 +81,18 @@ Copy-Item .env.example .env.run
 - 数据库：`ai_interview`
 - 默认种子数据：`SEED_ENABLED=true`
 
+安全相关必填项（首次使用前必须配置）：
+
+- `POSTGRES_PASSWORD`：PostgreSQL 密码
+- `REDIS_PASSWORD`：Redis 密码（Docker Compose 中 Redis 启用 `--requirepass`）
+- `JWT_SECRET_KEY`：JWT 签名密钥（建议 32 字符以上）
+- `AI_SERVICE_API_KEY`：后端与 AI 服务之间的内部鉴权密钥（两端必须一致）
+
 ## 启动方式总览
 
 | 场景 | 推荐命令 | 说明 |
 | --- | --- | --- |
-| 想最快体验整套服务 | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\start.ps1 -Full` | Windows 下最省事，脚本会在后台拉起服务并写日志 |
+| 想最快体验整套服务 | `pwsh -NoProfile -ExecutionPolicy Bypass -File .\start.ps1 -Full` | Windows 下最省事，脚本会在后台拉起服务并写日志 |
 | 想用容器跑完整环境 | `docker compose --env-file .env.run up --build -d` | 同时启动前端、后端、AI 服务、PostgreSQL、Redis、Celery Worker |
 | 想本地联调前后端 | `npm run dev` | 自动确保 PostgreSQL 和 Redis 可用，然后启动前端与后端 |
 | 想本地联调前后端 + AI 服务 | `npm run dev:full` | 在 `dev` 基础上额外启动 `ai-service` |
@@ -129,19 +136,19 @@ docker compose --env-file .env.run down
 普通开发：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\start.ps1
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\start.ps1
 ```
 
 完整演示：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\start.ps1 -Full
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\start.ps1 -Full
 ```
 
 停止服务：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\stop.ps1
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\stop.ps1
 ```
 
 常用补充参数：
@@ -214,7 +221,7 @@ npm run dev:ai-service
 
 后端本地开发默认连接：
 
-- PostgreSQL：`Host=localhost;Port=5433;Database=ai_interview;Username=postgres;Password=postgres`
+- PostgreSQL：`Host=localhost;Port=5433;Database=ai_interview;Username=postgres;Password=<见 .env.run>`
 - Redis：`localhost:6379,abortConnect=false`
 
 后端启动时会自动执行数据库迁移；当 `SEED_ENABLED=true` 时，会自动写入种子数据。

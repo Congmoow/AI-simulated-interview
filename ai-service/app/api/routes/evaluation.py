@@ -11,4 +11,4 @@ router = APIRouter(dependencies=[Depends(verify_internal_request)])
 @router.post("/score", response_model=ScoreInterviewResponse)
 async def score_interview(request: ScoreInterviewRequest):
     service = EvaluationService(get_provider())
-    return service.score(request)
+    return await service.score(request)

@@ -1,11 +1,22 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace AiInterview.Api.DTOs.Auth;
 
 public class RegisterRequest
 {
+    [MaxLength(20)]
     public string Username { get; set; } = string.Empty;
+
+    [MaxLength(20)]
     public string Password { get; set; } = string.Empty;
+
+    [MaxLength(100)]
     public string Email { get; set; } = string.Empty;
+
+    [MaxLength(20)]
     public string? Phone { get; set; }
+
+    [MaxLength(50)]
     public string? TargetPosition { get; set; }
 }
 
@@ -18,7 +29,10 @@ public class RegisterResponse
 
 public class LoginRequest
 {
+    [MaxLength(20)]
     public string Username { get; set; } = string.Empty;
+
+    [MaxLength(20)]
     public string Password { get; set; } = string.Empty;
 }
 
@@ -51,19 +65,28 @@ public class PositionOptionDto
 
 public class UpdateProfileRequest
 {
+    [MaxLength(100)]
     public string? Email { get; set; }
+
+    [MaxLength(20)]
     public string? Phone { get; set; }
+
+    [MaxLength(50)]
     public string? TargetPosition { get; set; }
+
+    [MaxLength(500)]
     public string? AvatarUrl { get; set; }
 }
 
 public class RefreshTokenRequest
 {
+    [MaxLength(500)]
     public string RefreshToken { get; set; } = string.Empty;
 }
 
 public class RefreshTokenResponse
 {
     public string AccessToken { get; set; } = string.Empty;
+    public string RefreshToken { get; set; } = string.Empty;
     public int ExpiresIn { get; set; }
 }

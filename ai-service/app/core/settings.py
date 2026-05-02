@@ -6,7 +6,6 @@ class Settings(BaseSettings):
     service_name: str = "ai-interview-ai-service"
     app_env: str = "development"
     api_key: str = ""
-    allow_insecure_dev_auth_bypass: bool = False
     redis_url: str = "redis://localhost:6379/0"
     model_provider: str = "mock"
     knowledge_root: str = "/app/storage/uploads/knowledge"

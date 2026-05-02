@@ -29,7 +29,7 @@ async def start_interview(request: StartInterviewRequest):
 
     service = InterviewService(provider)
     try:
-        return service.start(request)
+        return await service.start(request)
     except Exception as exc:
         logger.exception(
             "start_interview_failed fallback_to_template=true exception_type=%s",
@@ -40,5 +40,23 @@ async def start_interview(request: StartInterviewRequest):
 
 @router.post("/answer", response_model=AnswerInterviewResponse)
 async def answer_interview(request: AnswerInterviewRequest):
-    service = InterviewService(get_provider())
-    return service.answer(request)
+    try:
+        provider = get_provider()
+    except Exception as exc:
+        logger.warning(
+            "answer_interview_provider_unavailable exception_type=%s",
+            exc.__class__.__name__,
+        )
+        raise HTTPException(status_code=503, detail="AI 服务不可用，请稍后重试。") from exc
+
+    service = InterviewService(provider)
+    try:
+        return await service.answer(request)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(
+            "answer_interview_failed exception_type=%s",
+            exc.__class__.__name__,
+        )
+        raise HTTPException(status_code=502, detail="回答处理失败，请稍后重试。") from exc

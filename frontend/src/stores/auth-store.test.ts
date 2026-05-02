@@ -10,18 +10,14 @@ type StorageMock = {
   clear: () => void;
   key: (index: number) => string | null;
   readonly length: number;
-  resetCounts: () => void;
-  readonly setItemCalls: number;
 };
 
 function createStorageMock(): StorageMock {
   const values = new Map<string, string>();
-  let setItemCalls = 0;
 
   return {
     getItem: (key) => values.get(key) ?? null,
     setItem: (key, value) => {
-      setItemCalls += 1;
       values.set(key, value);
     },
     removeItem: (key) => {
@@ -33,12 +29,6 @@ function createStorageMock(): StorageMock {
     key: (index) => Array.from(values.keys())[index] ?? null,
     get length() {
       return values.size;
-    },
-    resetCounts: () => {
-      setItemCalls = 0;
-    },
-    get setItemCalls() {
-      return setItemCalls;
     },
   };
 }
@@ -68,28 +58,22 @@ function resetAuthStore() {
   useAuthStore.setState(useAuthStore.getInitialState());
 }
 
-test("认证状态默认应立即可用且不依赖持久化恢复", () => {
+test("认证状态默认未 hydrate，需等待持久化恢复", () => {
   resetAuthStore();
 
   const state = useAuthStore.getState();
 
-  assert.equal(state.hydrated, true);
+  assert.equal(state.hydrated, false);
   assert.equal(state.accessToken, null);
   assert.equal(state.refreshToken, null);
   assert.equal(state.user, null);
 });
 
-test("登录态更新应只保存在内存中且不再写入本地存储", () => {
+test("登录态更新应持久化到 localStorage", () => {
   resetAuthStore();
-  const { localStorage, sessionStorage, cleanup } = installWindowMock();
+  const { localStorage, cleanup } = installWindowMock();
 
   try {
-    localStorage.setItem("ai-interview-auth", "legacy-token");
-    sessionStorage.setItem("ai-interview-auth", "legacy-token");
-    localStorage.setItem("interview-draft:test", "keep-me");
-    localStorage.resetCounts();
-    sessionStorage.resetCounts();
-
     useAuthStore.getState().setSession({
       accessToken: "access-token",
       refreshToken: "refresh-token",
@@ -103,11 +87,13 @@ test("登录态更新应只保存在内存中且不再写入本地存储", () =>
     });
 
     assert.equal(useAuthStore.getState().accessToken, "access-token");
-    assert.equal(localStorage.setItemCalls, 0);
-    assert.equal(sessionStorage.setItemCalls, 0);
-    assert.equal(localStorage.getItem("ai-interview-auth"), null);
-    assert.equal(sessionStorage.getItem("ai-interview-auth"), null);
-    assert.equal(localStorage.getItem("interview-draft:test"), "keep-me");
+
+    const stored = localStorage.getItem("ai-interview-auth");
+    assert.notEqual(stored, null);
+    const parsed = JSON.parse(stored!);
+    assert.equal(parsed.state.accessToken, "access-token");
+    assert.equal(parsed.state.refreshToken, "refresh-token");
+    assert.equal(parsed.state.user.username, "tester");
 
     useAuthStore.getState().clearSession();
 

@@ -17,7 +17,7 @@ router = APIRouter(dependencies=[Depends(verify_internal_request)])
 @router.post("/process", response_model=ProcessDocumentResponse)
 async def process_document(request: ProcessDocumentRequest) -> ProcessDocumentResponse:
     service = DocumentService(get_provider())
-    return service.process(request)
+    return await service.process(request)
 
 
 @router.post("/enqueue", response_model=EnqueueDocumentResponse)

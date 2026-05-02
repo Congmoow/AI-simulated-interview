@@ -20,26 +20,26 @@ from app.schemas.report import GenerateReportRequest, GenerateReportResponse
 
 
 class ModelProvider(Protocol):
-    def start_interview(self, request: StartInterviewRequest) -> StartInterviewResponse:
+    async def start_interview(self, request: StartInterviewRequest) -> StartInterviewResponse:
         ...
 
-    def answer_interview(self, request: AnswerInterviewRequest) -> AnswerInterviewResponse:
+    async def answer_interview(self, request: AnswerInterviewRequest) -> AnswerInterviewResponse:
         ...
 
-    def score_interview(self, request: ScoreInterviewRequest) -> ScoreInterviewResponse:
+    async def score_interview(self, request: ScoreInterviewRequest) -> ScoreInterviewResponse:
         ...
 
-    def generate_report(self, request: GenerateReportRequest) -> GenerateReportResponse:
+    async def generate_report(self, request: GenerateReportRequest) -> GenerateReportResponse:
         ...
 
-    def recommend_resources(self, request: ResourceRecommendationRequest) -> ResourceRecommendationResponse:
+    async def recommend_resources(self, request: ResourceRecommendationRequest) -> ResourceRecommendationResponse:
         ...
 
-    def generate_training_plan(self, request: TrainingPlanRequest) -> TrainingPlanResponse:
+    async def generate_training_plan(self, request: TrainingPlanRequest) -> TrainingPlanResponse:
         ...
 
-    def search_rag(self, request: RagSearchRequest) -> RagSearchResponse:
+    async def search_rag(self, request: RagSearchRequest) -> RagSearchResponse:
         ...
 
-    def process_document(self, request: ProcessDocumentRequest) -> ProcessDocumentResponse:
+    async def process_document(self, request: ProcessDocumentRequest) -> ProcessDocumentResponse:
         ...

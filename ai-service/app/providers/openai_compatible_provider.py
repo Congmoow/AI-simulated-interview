@@ -31,7 +31,7 @@ from app.schemas.report import GenerateReportRequest, GenerateReportResponse
 from app.services.backend_ai_settings import RuntimeAiSettings
 
 logger = logging.getLogger(__name__)
-_shared_clients: dict[tuple[str, str], httpx.Client] = {}
+_shared_clients: dict[tuple[str, str], httpx.AsyncClient] = {}
 _shared_clients_lock = threading.Lock()
 STANDARD_DIMENSION_WEIGHTS = {
     "technicalAccuracy": 0.30,
@@ -99,12 +99,12 @@ STANDARD_DIMENSION_ALIASES = {
 }
 
 
-def get_shared_http_client(base_url: str, api_key: str) -> httpx.Client:
+def get_shared_http_client(base_url: str, api_key: str) -> httpx.AsyncClient:
     key = (base_url.rstrip("/"), api_key)
     with _shared_clients_lock:
         client = _shared_clients.get(key)
         if client is None:
-            client = httpx.Client(
+            client = httpx.AsyncClient(
                 base_url=f"{base_url.rstrip('/')}/",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 http2=False,
@@ -127,11 +127,11 @@ class OpenAICompatibleProvider(ModelProvider):
     def __init__(self, settings: RuntimeAiSettings) -> None:
         self.settings = settings
         self.model_version = f"{settings.provider}:{settings.model}"
-        self._http_client: httpx.Client | None = None
+        self._http_client: httpx.AsyncClient | None = None
 
-    def start_interview(self, request: StartInterviewRequest) -> StartInterviewResponse:
+    async def start_interview(self, request: StartInterviewRequest) -> StartInterviewResponse:
         start_timeout_seconds = 25.0
-        payload = self._chat_json(
+        payload = await self._chat_json(
             step="start_interview",
             system_prompt="你是一名中文技术面试官。主问题只能从给定题库中选择。返回 JSON：action、messageType、content、selectedQuestionId、suggestions、metadata。",
             user_prompt=(
@@ -159,8 +159,8 @@ class OpenAICompatibleProvider(ModelProvider):
             metadata=self._as_dict(payload.get("metadata")),
         )
 
-    def answer_interview(self, request: AnswerInterviewRequest) -> AnswerInterviewResponse:
-        payload = self._chat_json(
+    async def answer_interview(self, request: AnswerInterviewRequest) -> AnswerInterviewResponse:
+        payload = await self._chat_json(
             step="answer_interview",
             system_prompt="你是一名中文技术面试官。主问题只能从给定题库中选择；追问必须围绕当前主问题；不得重复已问主问题。返回 JSON：action、messageType、content、selectedQuestionId、suggestions、metadata。action 只能是 question、follow_up、finish。",
             user_prompt=self._build_compact_answer_prompt(request),
@@ -170,10 +170,10 @@ class OpenAICompatibleProvider(ModelProvider):
         )
         return self._parse_answer_payload(request, payload)
 
-    def score_interview(self, request: ScoreInterviewRequest) -> ScoreInterviewResponse:
+    async def score_interview(self, request: ScoreInterviewRequest) -> ScoreInterviewResponse:
         rounds_text = self._build_score_rounds_text(request.rounds)
         try:
-            payload = self._chat_json(
+            payload = await self._chat_json(
                 step="score_interview",
                 system_prompt=(
                     "You are a Chinese technical interview scorer. Return JSON only. "
@@ -227,12 +227,12 @@ class OpenAICompatibleProvider(ModelProvider):
             self._log_step_failure("score_interview", exc, round_count=len(request.rounds), input_summary_length=len(rounds_text), timeout_seconds=45.0)
             raise
 
-    def generate_report(self, request: GenerateReportRequest) -> GenerateReportResponse:
+    async def generate_report(self, request: GenerateReportRequest) -> GenerateReportResponse:
         rounds_text = self._build_report_rounds_text(request.rounds)
         dimension_text = "\n".join([f"- {key}: score={value.score:.1f}, weight={value.weight:.2f}" for key, value in request.dimension_scores.items()])
         dimension_detail_text = "\n".join([f"- {key}: {self._truncate_with_marker(value, 120)}" for key, value in request.dimension_details.items()])
         try:
-            payload = self._chat_json(
+            payload = await self._chat_json(
                 step="generate_report",
                 system_prompt="You are a Chinese interview report writer. Return JSON only with executiveSummary, strengths, weaknesses, detailedAnalysis, learningSuggestions, trainingPlan and nextInterviewFocus.",
                 user_prompt=f"Position: {request.position_code}\nOverall score: {request.overall_score:.1f}\nDimension scores:\n{dimension_text or 'N/A'}\nDimension details:\n{dimension_detail_text or 'N/A'}\nInterview summary:\n{rounds_text or 'N/A'}\nBuild the report from scores first, then use the interview summary for evidence.",
@@ -258,16 +258,16 @@ class OpenAICompatibleProvider(ModelProvider):
             self._log_step_failure("generate_report", exc, timeout_seconds=60.0, input_summary_length=len(rounds_text), response_body_snippet=response_payload_snippet)
             raise
 
-    def recommend_resources(self, request: ResourceRecommendationRequest) -> ResourceRecommendationResponse:
+    async def recommend_resources(self, request: ResourceRecommendationRequest) -> ResourceRecommendationResponse:
         raise NotImplementedError("recommend_resources is not connected to real AI")
 
-    def generate_training_plan(self, request: TrainingPlanRequest) -> TrainingPlanResponse:
+    async def generate_training_plan(self, request: TrainingPlanRequest) -> TrainingPlanResponse:
         raise NotImplementedError("generate_training_plan is not connected to real AI")
 
-    def search_rag(self, request: RagSearchRequest) -> RagSearchResponse:
+    async def search_rag(self, request: RagSearchRequest) -> RagSearchResponse:
         raise NotImplementedError("search_rag is not connected to real AI")
 
-    def process_document(self, request: ProcessDocumentRequest) -> ProcessDocumentResponse:
+    async def process_document(self, request: ProcessDocumentRequest) -> ProcessDocumentResponse:
         chunk_count = max(1, len(request.title) // 10 + 3)
         chunks = [ChunkResult(chunkIndex=index, content=f"[{request.title}] chunk {index + 1}", tokenCount=max(10, len(request.title) + 20), metadata={"source": "local-document-processor", "fileName": request.file_name, "fileType": request.file_type, "chunkIndex": index}) for index in range(chunk_count)]
         return ProcessDocumentResponse(documentId=request.document_id, chunks=chunks)
@@ -311,16 +311,16 @@ class OpenAICompatibleProvider(ModelProvider):
             return AnswerInterviewResponse(action="finish", messageType=message_type or "closing", content=content, selectedQuestionId=None, suggestions=suggestions, metadata=metadata)
         raise ValueError("invalid action response")
 
-    def _get_http_client(self) -> httpx.Client:
+    def _get_http_client(self) -> httpx.AsyncClient:
         if self._http_client is None:
             self._http_client = get_shared_http_client(self.settings.base_url, self.settings.api_key)
         return self._http_client
 
-    def _chat_text(self, *, step: str, system_prompt: str, user_prompt: str, temperature: float, max_tokens: int, timeout_seconds: float = 30.0) -> str:
+    async def _chat_text(self, *, step: str, system_prompt: str, user_prompt: str, temperature: float, max_tokens: int, timeout_seconds: float = 30.0) -> str:
         started_at = time.monotonic()
         client = self._get_http_client()
         try:
-            response = client.post("chat/completions", json={"model": self.settings.model, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}], "temperature": temperature, "max_tokens": max_tokens}, timeout=timeout_seconds)
+            response = await client.post("chat/completions", json={"model": self.settings.model, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}], "temperature": temperature, "max_tokens": max_tokens}, timeout=timeout_seconds)
             response.raise_for_status()
             payload = response.json()
         except httpx.HTTPStatusError as exc:
@@ -338,8 +338,8 @@ class OpenAICompatibleProvider(ModelProvider):
             raise ValueError(f"{step} returned empty content")
         return text
 
-    def _chat_json(self, *, step: str, system_prompt: str, user_prompt: str, temperature: float, max_tokens: int, timeout_seconds: float = 30.0) -> dict[str, Any]:
-        content = self._chat_text(step=step, system_prompt=system_prompt, user_prompt=user_prompt, temperature=temperature, max_tokens=max_tokens, timeout_seconds=timeout_seconds)
+    async def _chat_json(self, *, step: str, system_prompt: str, user_prompt: str, temperature: float, max_tokens: int, timeout_seconds: float = 30.0) -> dict[str, Any]:
+        content = await self._chat_text(step=step, system_prompt=system_prompt, user_prompt=user_prompt, temperature=temperature, max_tokens=max_tokens, timeout_seconds=timeout_seconds)
         try:
             return json.loads(self._extract_json_object(content))
         except json.JSONDecodeError as exc:

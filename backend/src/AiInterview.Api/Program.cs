@@ -45,10 +45,11 @@ if (app.Environment.IsDevelopment())
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.MapControllers();
 app.MapHub<InterviewHub>("/hubs/interview");
-app.MapGet("/health", async (ApplicationDbContext dbContext, IConnectionMultiplexer redis, CancellationToken cancellationToken) =>
+app.MapGet("/health", async (HttpContext httpContext, ApplicationDbContext dbContext, IConnectionMultiplexer redis, CancellationToken cancellationToken) =>
 {
     var databaseHealthy = await dbContext.Database.CanConnectAsync(cancellationToken);
     var redisHealthy = false;
@@ -63,9 +64,18 @@ app.MapGet("/health", async (ApplicationDbContext dbContext, IConnectionMultiple
         redisHealthy = false;
     }
 
+    var overallHealthy = databaseHealthy && redisHealthy;
+
+    if (!httpContext.RequestServices.GetRequiredService<IHostEnvironment>().IsDevelopment())
+    {
+        return overallHealthy
+            ? Results.Ok(new { status = "healthy", service = "backend" })
+            : Results.StatusCode(503);
+    }
+
     return Results.Ok(new
     {
-        status = databaseHealthy && redisHealthy ? "healthy" : "degraded",
+        status = overallHealthy ? "healthy" : "degraded",
         checks = new
         {
             database = databaseHealthy,

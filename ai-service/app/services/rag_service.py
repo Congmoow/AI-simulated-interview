@@ -6,5 +6,5 @@ class RagService:
     def __init__(self, provider: ModelProvider) -> None:
         self.provider = provider
 
-    def search(self, request: RagSearchRequest) -> RagSearchResponse:
-        return self.provider.search_rag(request)
+    async def search(self, request: RagSearchRequest) -> RagSearchResponse:
+        return await self.provider.search_rag(request)

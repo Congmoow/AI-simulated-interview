@@ -1,8 +1,10 @@
 "use client";
 
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import type { CurrentUser } from "@/types/api";
-import { clearLegacyAuthStorage } from "@/utils/storage";
+
+const AUTH_STORAGE_KEY = "ai-interview-auth";
 
 interface AuthState {
   accessToken: string | null;
@@ -21,30 +23,44 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>()(
-  (set) => ({
-    accessToken: null,
-    refreshToken: null,
-    expiresIn: null,
-    user: null,
-    hydrated: true,
-    setSession: (payload) => {
-      clearLegacyAuthStorage();
-      set({
-        accessToken: payload.accessToken,
-        refreshToken: payload.refreshToken,
-        expiresIn: payload.expiresIn,
-        user: payload.user,
-      });
+  persist(
+    (set) => ({
+      accessToken: null,
+      refreshToken: null,
+      expiresIn: null,
+      user: null,
+      hydrated: false,
+      setSession: (payload) => {
+        set({
+          accessToken: payload.accessToken,
+          refreshToken: payload.refreshToken,
+          expiresIn: payload.expiresIn,
+          user: payload.user,
+        });
+      },
+      clearSession: () => {
+        set({
+          accessToken: null,
+          refreshToken: null,
+          expiresIn: null,
+          user: null,
+        });
+      },
+      markHydrated: () => set({ hydrated: true }),
+    }),
+    {
+      name: AUTH_STORAGE_KEY,
+      partialize: (state) => ({
+        accessToken: state.accessToken,
+        refreshToken: state.refreshToken,
+        expiresIn: state.expiresIn,
+        user: state.user,
+      }),
+      onRehydrateStorage: () => (_state, error) => {
+        if (!error) {
+          useAuthStore.setState({ hydrated: true });
+        }
+      },
     },
-    clearSession: () => {
-      clearLegacyAuthStorage();
-      set({
-        accessToken: null,
-        refreshToken: null,
-        expiresIn: null,
-        user: null,
-      });
-    },
-    markHydrated: () => undefined,
-  }),
+  ),
 );

@@ -6,5 +6,5 @@ class DocumentService:
     def __init__(self, provider: ModelProvider) -> None:
         self.provider = provider
 
-    def process(self, request: ProcessDocumentRequest) -> ProcessDocumentResponse:
-        return self.provider.process_document(request)
+    async def process(self, request: ProcessDocumentRequest) -> ProcessDocumentResponse:
+        return await self.provider.process_document(request)

@@ -11,4 +11,4 @@ router = APIRouter(dependencies=[Depends(verify_internal_request)])
 @router.post("/generate", response_model=GenerateReportResponse)
 async def generate_report(request: GenerateReportRequest):
     service = ReportService(get_provider())
-    return service.generate(request)
+    return await service.generate(request)

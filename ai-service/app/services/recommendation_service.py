@@ -11,8 +11,8 @@ class RecommendationService:
     def __init__(self, provider: ModelProvider) -> None:
         self.provider = provider
 
-    def recommend_resources(self, request: ResourceRecommendationRequest) -> ResourceRecommendationResponse:
-        return self.provider.recommend_resources(request)
+    async def recommend_resources(self, request: ResourceRecommendationRequest) -> ResourceRecommendationResponse:
+        return await self.provider.recommend_resources(request)
 
-    def generate_training_plan(self, request: TrainingPlanRequest) -> TrainingPlanResponse:
-        return self.provider.generate_training_plan(request)
+    async def generate_training_plan(self, request: TrainingPlanRequest) -> TrainingPlanResponse:
+        return await self.provider.generate_training_plan(request)

@@ -8,7 +8,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "${POSTGRES_PORT}:5432"
+      # 本地开发需要；生产环境建议移除宿主机映射，仅 Docker 内部可达
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - ./storage/postgres:/var/lib/postgresql/data
     healthcheck:
@@ -21,13 +22,14 @@ services:
     image: redis:7-alpine
     container_name: ai-interview-redis
     restart: unless-stopped
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
     ports:
-      - "${REDIS_PORT}:6379"
+      # 本地开发需要；生产环境建议移除宿主机映射，仅 Docker 内部可达
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - ./storage/redis:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -41,9 +43,8 @@ services:
     environment:
       AI_SERVICE_APP_ENV: ${AI_SERVICE_APP_ENV}
       AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY}
-      AI_SERVICE_ALLOW_INSECURE_DEV_AUTH_BYPASS: ${AI_SERVICE_ALLOW_INSECURE_DEV_AUTH_BYPASS}
       AI_SERVICE_MODEL_PROVIDER: ${AI_SERVICE_MODEL_PROVIDER}
-      AI_SERVICE_REDIS_URL: ${AI_SERVICE_REDIS_URL}
+      AI_SERVICE_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       AI_SERVICE_KNOWLEDGE_ROOT: ${AI_SERVICE_KNOWLEDGE_ROOT}
       AI_SERVICE_BACKEND_URL: ${AI_SERVICE_BACKEND_URL}
     ports:
@@ -75,9 +76,8 @@ services:
     environment:
       AI_SERVICE_APP_ENV: ${AI_SERVICE_APP_ENV}
       AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY}
-      AI_SERVICE_ALLOW_INSECURE_DEV_AUTH_BYPASS: ${AI_SERVICE_ALLOW_INSECURE_DEV_AUTH_BYPASS}
       AI_SERVICE_MODEL_PROVIDER: ${AI_SERVICE_MODEL_PROVIDER}
-      AI_SERVICE_REDIS_URL: ${AI_SERVICE_REDIS_URL}
+      AI_SERVICE_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       AI_SERVICE_KNOWLEDGE_ROOT: ${AI_SERVICE_KNOWLEDGE_ROOT}
       AI_SERVICE_BACKEND_URL: ${AI_SERVICE_BACKEND_URL}
     depends_on:
@@ -91,11 +91,11 @@ services:
     container_name: ai-interview-backend
     restart: unless-stopped
     environment:
-      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
       ASPNETCORE_URLS: http://+:8080
       App__FrontendUrl: ${APP_FRONTEND_URL}
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
-      ConnectionStrings__Redis: redis:6379,abortConnect=false
+      ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD},abortConnect=false
       Jwt__Issuer: ${JWT_ISSUER}
       Jwt__Audience: ${JWT_AUDIENCE}
       Jwt__SecretKey: ${JWT_SECRET_KEY}
@@ -103,7 +103,6 @@ services:
       Jwt__RefreshTokenExpiresDays: ${JWT_REFRESH_TOKEN_EXPIRES_DAYS}
       AiService__BaseUrl: http://ai-service:8000
       AiService__ApiKey: ${AI_SERVICE_API_KEY}
-      AiService__AllowInsecureDevAuthBypass: ${AI_SERVICE_ALLOW_INSECURE_DEV_AUTH_BYPASS}
       Storage__KnowledgeRoot: ${STORAGE_KNOWLEDGE_ROOT}
       Seed__Enabled: ${SEED_ENABLED}
       Seed__UserPassword: ${SEED_USER_PASSWORD}
@@ -136,4 +135,4 @@ services:
       - "${FRONTEND_PORT}:3000"
     depends_on:
       backend:
-        condition: service_started
+        condition: service_healthy

@@ -159,7 +159,7 @@ Write-Host '[启动] 后台启动各服务...' -ForegroundColor Cyan
 $fLog  = Join-Path $logsDir 'frontend.log'
 $fErr  = Join-Path $logsDir 'frontend.err'
 Remove-Item $fLog, $fErr -Force -ErrorAction SilentlyContinue
-$fProc = Start-Process powershell.exe `
+$fProc = Start-Process pwsh `
     -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', 'npm --prefix frontend run dev') `
     -WorkingDirectory $root -WindowStyle Hidden `
     -RedirectStandardOutput $fLog -RedirectStandardError $fErr -PassThru

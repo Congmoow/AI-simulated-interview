@@ -195,9 +195,8 @@ npm run dev
 内部接口补充：
 
 - [`src/AiInterview.Api/Controllers/InternalController.cs`](./src/AiInterview.Api/Controllers/InternalController.cs)
-- 内部接口默认拒绝未鉴权请求，不再因为 `AiService__ApiKey` 为空而自动放开
-- 只有在 `Development` 环境且显式设置 `AiService__AllowInsecureDevAuthBypass=true` 时，才允许开发绕过
-- 正常运行时，`ai-service` 调用内部接口必须带上 `Authorization: Bearer <ApiKey>`，且该密钥应与 `AI_SERVICE_API_KEY` 使用同一份来源
+- 内部接口采用 fail-closed 策略：`AiService__ApiKey` 未配置时，所有请求一律拒绝
+- `ai-service` 调用内部接口必须带上 `Authorization: Bearer <ApiKey>`，且该密钥应与 `AI_SERVICE_API_KEY` 使用同一份来源
 
 ## 数据与持久化
 

@@ -35,7 +35,7 @@ class MockProvider:
         "在么",
     }
 
-    def start_interview(self, request: StartInterviewRequest) -> StartInterviewResponse:
+    async def start_interview(self, request: StartInterviewRequest) -> StartInterviewResponse:
         question = next(
             (item for item in request.question_bank if item.question_id not in set(request.asked_question_ids)),
             request.question_bank[0],
@@ -49,7 +49,7 @@ class MockProvider:
             metadata={"selectedQuestionTitle": question.title},
         )
 
-    def answer_interview(self, request: AnswerInterviewRequest) -> AnswerInterviewResponse:
+    async def answer_interview(self, request: AnswerInterviewRequest) -> AnswerInterviewResponse:
         current_question = request.current_main_question
         current_related_question_id = current_question.question_id if current_question is not None else None
         latest_user_message = next(
@@ -111,7 +111,7 @@ class MockProvider:
     def _is_generic_acknowledgement(cls, answer: str) -> bool:
         return answer in cls._GENERIC_ACKNOWLEDGEMENTS
 
-    def score_interview(self, request: ScoreInterviewRequest) -> ScoreInterviewResponse:
+    async def score_interview(self, request: ScoreInterviewRequest) -> ScoreInterviewResponse:
         answered_rounds = [round_item for round_item in request.rounds if round_item.answer]
         completion_ratio = len(answered_rounds) / max(len(request.rounds), 1)
         overall_score = round(68 + completion_ratio * 18 + min(len(answered_rounds), 5) * 1.6, 2)
@@ -146,7 +146,7 @@ class MockProvider:
             modelVersion="mock-provider-v2",
         )
 
-    def generate_report(self, request: GenerateReportRequest) -> GenerateReportResponse:
+    async def generate_report(self, request: GenerateReportRequest) -> GenerateReportResponse:
         return GenerateReportResponse(
             executiveSummary="mock summary",
             strengths=["结构清晰"],
@@ -158,16 +158,16 @@ class MockProvider:
             modelVersion="mock-provider-v2",
         )
 
-    def recommend_resources(self, request: ResourceRecommendationRequest) -> ResourceRecommendationResponse:
+    async def recommend_resources(self, request: ResourceRecommendationRequest) -> ResourceRecommendationResponse:
         raise NotImplementedError
 
-    def generate_training_plan(self, request: TrainingPlanRequest) -> TrainingPlanResponse:
+    async def generate_training_plan(self, request: TrainingPlanRequest) -> TrainingPlanResponse:
         raise NotImplementedError
 
-    def search_rag(self, request: RagSearchRequest) -> RagSearchResponse:
+    async def search_rag(self, request: RagSearchRequest) -> RagSearchResponse:
         raise NotImplementedError
 
-    def process_document(self, request: ProcessDocumentRequest) -> ProcessDocumentResponse:
+    async def process_document(self, request: ProcessDocumentRequest) -> ProcessDocumentResponse:
         chunk_count = max(1, len(request.title) // 10 + 3)
         chunks = [
             ChunkResult(

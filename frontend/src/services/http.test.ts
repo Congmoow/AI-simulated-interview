@@ -82,6 +82,7 @@ function readAuthorizationHeader(config: InternalAxiosRequestConfig) {
 
 test("HTTP 请求应从内存态会话注入 Authorization 头", async () => {
   resetStores();
+  installWindowMock();
   useAuthStore.getState().setSession({
     accessToken: "access-token",
     refreshToken: "refresh-token",
@@ -115,12 +116,9 @@ test("HTTP 请求应从内存态会话注入 Authorization 头", async () => {
   }
 });
 
-test("收到 401 时应清空内存会话并拉起登录弹窗", async () => {
+test("收到 401 且刷新失败时应清空会话并拉起登录弹窗", async () => {
   resetStores();
-  const { localStorage, sessionStorage, cleanup } = installWindowMock();
-
-  localStorage.setItem("ai-interview-auth", "legacy-token");
-  sessionStorage.setItem("ai-interview-auth", "legacy-token");
+  const { cleanup } = installWindowMock();
 
   useAuthStore.getState().setSession({
     accessToken: "access-token",
@@ -148,8 +146,6 @@ test("收到 401 时应清空内存会话并拉起登录弹窗", async () => {
     assert.equal(useAuthStore.getState().accessToken, null);
     assert.equal(useAuthStore.getState().refreshToken, null);
     assert.equal(useAuthModalStore.getState().open, true);
-    assert.equal(localStorage.getItem("ai-interview-auth"), null);
-    assert.equal(sessionStorage.getItem("ai-interview-auth"), null);
   } finally {
     httpClient.defaults.adapter = originalAdapter;
     cleanup();

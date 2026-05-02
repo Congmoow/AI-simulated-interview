@@ -20,26 +20,68 @@ httpClient.interceptors.request.use((config) => {
   return config;
 });
 
-let handling401 = false;
+let refreshingPromise: Promise<string> | null = null;
+
+async function refreshAccessToken(): Promise<string> {
+  const { refreshToken } = useAuthStore.getState();
+  if (!refreshToken) {
+    throw new Error("no refresh token");
+  }
+
+  const response = await axios.post(`${apiBaseUrl}/api/v1/auth/refresh`, {
+    refreshToken,
+  });
+
+  const data = response.data?.data;
+  if (!data?.accessToken) {
+    throw new Error("invalid refresh response");
+  }
+
+  useAuthStore.getState().setSession({
+    accessToken: data.accessToken,
+    refreshToken: data.refreshToken ?? refreshToken,
+    expiresIn: data.expiresIn ?? 0,
+    user: useAuthStore.getState().user!,
+  });
+
+  return data.accessToken as string;
+}
 
 httpClient.interceptors.response.use(
   (response) => response,
-  (error: unknown) => {
-    const status =
-      typeof error === "object" &&
-      error !== null &&
-      "response" in error &&
-      typeof (error as { response?: { status?: number } }).response?.status === "number"
-        ? (error as { response: { status: number } }).response.status
-        : null;
+  async (error: unknown) => {
+    const axiosError = error as {
+      response?: { status?: number; config?: { _retry?: boolean; headers?: Record<string, string> } };
+      config?: { _retry?: boolean; headers?: Record<string, string> };
+    };
 
-    if (status === 401 && !handling401) {
-      handling401 = true;
+    const status = axiosError.response?.status;
+    const originalConfig = axiosError.config;
+
+    if (status === 401 && originalConfig && !originalConfig._retry) {
+      originalConfig._retry = true;
+
+      try {
+        if (!refreshingPromise) {
+          refreshingPromise = refreshAccessToken().finally(() => {
+            refreshingPromise = null;
+          });
+        }
+
+        const newToken = await refreshingPromise;
+        originalConfig.headers = originalConfig.headers ?? {};
+        originalConfig.headers.Authorization = `Bearer ${newToken}`;
+        return httpClient(originalConfig);
+      } catch {
+        useAuthStore.getState().clearSession();
+        useAuthModalStore.getState().openLogin(null);
+        return Promise.reject(error);
+      }
+    }
+
+    if (status === 401) {
       useAuthStore.getState().clearSession();
       useAuthModalStore.getState().openLogin(null);
-      setTimeout(() => {
-        handling401 = false;
-      }, 1000);
     }
 
     return Promise.reject(error);
