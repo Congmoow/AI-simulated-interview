@@ -333,7 +333,8 @@ export function InterviewClient() {
             }
           : current,
       );
-      // SignalR 推送会携带完整数据并更新 UI，不再需要额外 GET 刷新
+      // SignalR 推送提供快速路径；refreshInterview 作为兜底确保数据完整
+      await refreshInterview(interviewId);
     } catch (requestError) {
       setAssistantThinking(false);
       setPendingAnswer((current) =>
@@ -354,6 +355,7 @@ export function InterviewClient() {
     detail,
     interviewId,
     persistDraft,
+    refreshInterview,
   ]);
 
   const handleFinishInterview = useCallback(async () => {
