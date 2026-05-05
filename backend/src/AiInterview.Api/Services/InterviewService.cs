@@ -108,14 +108,16 @@ public class InterviewService(
         await interviewRepository.AddRoundAsync(round, cancellationToken);
         await interviewRepository.SaveChangesAsync(cancellationToken);
 
-        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).ReceiveQuestion(new
+        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).ReceiveQuestion(new SignalRQuestionPayload
         {
-            messageId = openingMessage.Id,
-            questionId = selectedQuestion.Id,
-            content = openingMessage.Content,
-            type = selectedQuestion.Type,
-            roundNumber = round.RoundNumber,
-            messageType = openingMessage.MessageType
+            MessageId = openingMessage.Id,
+            QuestionId = selectedQuestion.Id,
+            Content = openingMessage.Content,
+            MessageType = openingMessage.MessageType,
+            QuestionType = selectedQuestion.Type,
+            RoundNumber = round.RoundNumber,
+            Sequence = openingMessage.Sequence,
+            CreatedAt = openingMessage.CreatedAt
         });
 
         return new CreateInterviewResponse
@@ -381,13 +383,15 @@ public class InterviewService(
         await interviewRepository.SaveChangesAsync(cancellationToken);
 
         await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).TypingIndicator(new { isTyping = false });
-        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).ReceiveFollowUp(new
+        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).ReceiveFollowUp(new SignalRFollowUpPayload
         {
-            messageId = followUpMessage.Id,
-            questionId = currentRound.QuestionId,
-            content = followUpMessage.Content,
-            messageType = followUpMessage.MessageType,
-            suggestions = aiResponse.Suggestions
+            MessageId = followUpMessage.Id,
+            QuestionId = currentRound.QuestionId,
+            Content = followUpMessage.Content,
+            MessageType = followUpMessage.MessageType,
+            Suggestions = aiResponse.Suggestions,
+            Sequence = followUpMessage.Sequence,
+            CreatedAt = followUpMessage.CreatedAt
         });
 
         return new SubmitAnswerResponse
@@ -466,14 +470,16 @@ public class InterviewService(
         await interviewRepository.SaveChangesAsync(cancellationToken);
 
         await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).TypingIndicator(new { isTyping = false });
-        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).ReceiveQuestion(new
+        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).ReceiveQuestion(new SignalRQuestionPayload
         {
-            messageId = questionMessage.Id,
-            questionId = selectedQuestion.Id,
-            content = questionMessage.Content,
-            type = selectedQuestion.Type,
-            roundNumber = nextRound.RoundNumber,
-            messageType = questionMessage.MessageType
+            MessageId = questionMessage.Id,
+            QuestionId = selectedQuestion.Id,
+            Content = questionMessage.Content,
+            MessageType = questionMessage.MessageType,
+            QuestionType = selectedQuestion.Type,
+            RoundNumber = nextRound.RoundNumber,
+            Sequence = questionMessage.Sequence,
+            CreatedAt = questionMessage.CreatedAt
         });
         await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).InterviewStatusChanged(new
         {

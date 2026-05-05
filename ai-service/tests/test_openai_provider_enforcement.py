@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from uuid import uuid4
 
@@ -163,40 +164,38 @@ def test_secondary_methods_should_raise_not_implemented() -> None:
     interview_id = uuid4()
 
     with pytest.raises(NotImplementedError):
-        provider.recommend_resources(
+        asyncio.run(provider.recommend_resources(
             ResourceRecommendationRequest(
                 interviewId=interview_id,
                 positionCode="java-backend",
                 weaknesses=["depth"],
             )
-        )
+        ))
 
     with pytest.raises(NotImplementedError):
-        provider.generate_training_plan(
+        asyncio.run(provider.generate_training_plan(
             TrainingPlanRequest(
                 interviewId=interview_id,
                 positionCode="java-backend",
                 weaknesses=["clarity"],
             )
-        )
+        ))
 
     with pytest.raises(NotImplementedError):
-        provider.search_rag(
+        asyncio.run(provider.search_rag(
             RagSearchRequest(
                 query="Spring transaction propagation",
                 positionCode="java-backend",
                 topK=3,
             )
-        )
+        ))
 
 
 def test_generate_report_should_use_real_ai_response(monkeypatch) -> None:
     provider = _build_provider()
 
-    monkeypatch.setattr(
-        provider,
-        "_chat_json",
-        lambda **_: {
+    async def fake_chat_json(**_: object) -> dict:
+        return {
             "executiveSummary": "summary",
             "strengths": ["strength-1"],
             "weaknesses": ["weakness-1"],
@@ -204,10 +203,11 @@ def test_generate_report_should_use_real_ai_response(monkeypatch) -> None:
             "learningSuggestions": ["suggestion-1"],
             "trainingPlan": [{"week": 1, "focus": "basics"}],
             "nextInterviewFocus": ["go deeper on metrics"],
-        },
-    )
+        }
 
-    response = provider.generate_report(_build_report_request())
+    monkeypatch.setattr(provider, "_chat_json", fake_chat_json)
+
+    response = asyncio.run(provider.generate_report(_build_report_request()))
 
     assert response.executive_summary == "summary"
     assert response.strengths == ["strength-1"]
@@ -217,10 +217,8 @@ def test_generate_report_should_use_real_ai_response(monkeypatch) -> None:
 def test_score_interview_should_map_non_standard_dimension_keys_to_standard_dimensions(monkeypatch) -> None:
     provider = _build_provider()
 
-    monkeypatch.setattr(
-        provider,
-        "_chat_json",
-        lambda **_: {
+    async def fake_chat_json(**_: object) -> dict:
+        return {
             "overallScore": 15,
             "rankPercentile": 5,
             "dimensions": {
@@ -230,10 +228,11 @@ def test_score_interview_should_map_non_standard_dimension_keys_to_standard_dime
                 "communication": {"score": 50, "detail": "表达尚可"},
             },
             "scoreBreakdown": {},
-        },
-    )
+        }
 
-    response = provider.score_interview(_build_score_request())
+    monkeypatch.setattr(provider, "_chat_json", fake_chat_json)
+
+    response = asyncio.run(provider.score_interview(_build_score_request()))
 
     assert response.dimension_scores["technicalAccuracy"].score == 10
     assert response.dimension_scores["knowledgeDepth"].score == 10
@@ -255,7 +254,7 @@ def test_score_and_report_should_use_new_timeouts_and_skip_finish_step(monkeypat
     start_request = _build_start_request()
     answer_request = _build_answer_request()
 
-    def fake_chat_text(
+    async def fake_chat_text(
         *,
         step: str,
         system_prompt: str,
@@ -277,10 +276,13 @@ def test_score_and_report_should_use_new_timeouts_and_skip_finish_step(monkeypat
 
     monkeypatch.setattr(provider, "_chat_text", fake_chat_text)
 
-    provider.start_interview(start_request)
-    provider.answer_interview(answer_request)
-    provider.score_interview(_build_score_request())
-    provider.generate_report(_build_report_request())
+    async def run_all():
+        await provider.start_interview(start_request)
+        await provider.answer_interview(answer_request)
+        await provider.score_interview(_build_score_request())
+        await provider.generate_report(_build_report_request())
+
+    asyncio.run(run_all())
 
     assert calls == [
         ("start_interview", 25.0, 220),
@@ -356,10 +358,8 @@ def test_build_report_rounds_text_should_trim_fields_and_total_length() -> None:
 def test_generate_report_should_normalize_non_core_fields(monkeypatch) -> None:
     provider = _build_provider()
 
-    monkeypatch.setattr(
-        provider,
-        "_chat_json",
-        lambda **_: {
+    async def fake_chat_json(**_: object) -> dict:
+        return {
             "summary": "summary from fallback key",
             "strengths": "clear structure",
             "weaknesses": ["not enough detail"],
@@ -367,10 +367,11 @@ def test_generate_report_should_normalize_non_core_fields(monkeypatch) -> None:
             "detailedAnalysis": ["analysis-item-1", "analysis-item-2"],
             "trainingPlan": {"week": 1, "topic": "cache"},
             "nextInterviewFocus": "consistency design",
-        },
-    )
+        }
 
-    response = provider.generate_report(_build_report_request())
+    monkeypatch.setattr(provider, "_chat_json", fake_chat_json)
+
+    response = asyncio.run(provider.generate_report(_build_report_request()))
 
     assert response.executive_summary == "summary from fallback key"
     assert response.strengths == ["clear structure"]
@@ -384,18 +385,17 @@ def test_generate_report_should_normalize_non_core_fields(monkeypatch) -> None:
 def test_generate_report_should_accept_minimal_report_payload(monkeypatch) -> None:
     provider = _build_provider()
 
-    monkeypatch.setattr(
-        provider,
-        "_chat_json",
-        lambda **_: {
+    async def fake_chat_json(**_: object) -> dict:
+        return {
             "executiveSummary": "minimal summary",
             "strengths": ["strength"],
             "weaknesses": ["weakness"],
             "learningSuggestions": ["suggestion"],
-        },
-    )
+        }
 
-    response = provider.generate_report(_build_report_request())
+    monkeypatch.setattr(provider, "_chat_json", fake_chat_json)
+
+    response = asyncio.run(provider.generate_report(_build_report_request()))
 
     assert response.executive_summary == "minimal summary"
     assert response.strengths == ["strength"]
@@ -411,7 +411,7 @@ def test_score_interview_should_log_observability_fields_on_timeout(monkeypatch,
 
     timeout_error = httpx.ReadTimeout("timed out")
 
-    def raise_provider_call_error(**_: object) -> dict[str, object]:
+    async def raise_provider_call_error(**_: object) -> dict[str, object]:
         raise ProviderCallError(
             "score_interview request failed",
             timeout_seconds=45.0,
@@ -423,7 +423,7 @@ def test_score_interview_should_log_observability_fields_on_timeout(monkeypatch,
 
     with caplog.at_level(logging.ERROR):
         with pytest.raises(Exception):
-            provider.score_interview(_build_score_request())
+            asyncio.run(provider.score_interview(_build_score_request()))
 
     message = "\n".join(caplog.messages)
     assert "round_count=1" in message
@@ -438,7 +438,7 @@ def test_generate_report_should_log_observability_fields_on_timeout(monkeypatch,
 
     timeout_error = httpx.ReadTimeout("timed out")
 
-    def raise_provider_call_error(**_: object) -> dict[str, object]:
+    async def raise_provider_call_error(**_: object) -> dict[str, object]:
         raise ProviderCallError(
             "generate_report request failed",
             timeout_seconds=60.0,
@@ -450,7 +450,7 @@ def test_generate_report_should_log_observability_fields_on_timeout(monkeypatch,
 
     with caplog.at_level(logging.ERROR):
         with pytest.raises(Exception):
-            provider.generate_report(_build_report_request())
+            asyncio.run(provider.generate_report(_build_report_request()))
 
     message = "\n".join(caplog.messages)
     assert "step=generate_report" in message
@@ -472,7 +472,7 @@ def test_chat_text_should_reuse_shared_http_client(monkeypatch) -> None:
             return {"choices": [{"message": {"content": "ok"}}]}
 
     class FakeClient:
-        def post(self, *args, **kwargs) -> FakeResponse:
+        async def post(self, *args, **kwargs) -> FakeResponse:
             return FakeResponse()
 
     def fake_get_client(base_url: str, api_key: str) -> FakeClient:
@@ -484,21 +484,24 @@ def test_chat_text_should_reuse_shared_http_client(monkeypatch) -> None:
         fake_get_client,
     )
 
-    provider._chat_text(
-        step="score_interview",
-        system_prompt="system",
-        user_prompt="user",
-        temperature=0.2,
-        max_tokens=128,
-        timeout_seconds=45.0,
-    )
-    provider._chat_text(
-        step="generate_report",
-        system_prompt="system",
-        user_prompt="user",
-        temperature=0.2,
-        max_tokens=128,
-        timeout_seconds=60.0,
-    )
+    async def run_chat_texts():
+        await provider._chat_text(
+            step="score_interview",
+            system_prompt="system",
+            user_prompt="user",
+            temperature=0.2,
+            max_tokens=128,
+            timeout_seconds=45.0,
+        )
+        await provider._chat_text(
+            step="generate_report",
+            system_prompt="system",
+            user_prompt="user",
+            temperature=0.2,
+            max_tokens=128,
+            timeout_seconds=60.0,
+        )
+
+    asyncio.run(run_chat_texts())
 
     assert created_clients == [("https://example.com/v1", "secret-key")]

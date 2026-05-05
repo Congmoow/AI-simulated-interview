@@ -6,6 +6,7 @@ using AiInterview.Api.Models.Entities;
 using AiInterview.Api.Repositories.Interfaces;
 using AiInterview.Api.Services.Interfaces;
 using Microsoft.AspNetCore.SignalR;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
@@ -20,6 +21,8 @@ public sealed class InterviewReportGenerationService(
     IHubContext<InterviewHub, IInterviewClient> hubContext,
     ILogger<InterviewReportGenerationService> logger) : IInterviewReportGenerationService
 {
+    // Per-interview chain ensures progress sends arrive in monotonic order.
+    private static readonly ConcurrentDictionary<Guid, Task> s_progressChains = new();
     private const string DefaultReportSystemPrompt =
         """
         你是一名中文技术面试复盘顾问。
@@ -66,10 +69,10 @@ public sealed class InterviewReportGenerationService(
                 ? MapExistingScore(existingScoreEntity)
                 : await GenerateScoreAsync(interview, orderedRounds, cancellationToken);
 
-            await PublishProgressAsync(interview.Id, 60, "reporting", 15, cancellationToken);
+            PublishProgressNonBlocking(interview.Id, 60, "reporting", 15);
             var report = await GenerateReportWithFallbackAsync(interview, orderedRounds, score, cancellationToken);
 
-            await PublishProgressAsync(interview.Id, 90, "saving", 5, cancellationToken);
+            PublishProgressNonBlocking(interview.Id, 90, "saving", 5);
 
             var scoreEntity = existingScoreEntity ?? new InterviewScore
             {
@@ -132,7 +135,7 @@ public sealed class InterviewReportGenerationService(
             "开始评分，interviewId={InterviewId} roundCount={RoundCount}",
             interview.Id,
             orderedRounds.Count);
-        await PublishProgressAsync(interview.Id, 30, "scoring", 20, cancellationToken);
+        PublishProgressNonBlocking(interview.Id, 30, "scoring", 20);
 
         var sw = Stopwatch.StartNew();
         var score = await aiIntegrationService.ScoreAsync(new ScoreAiRequest
@@ -332,19 +335,33 @@ public sealed class InterviewReportGenerationService(
         return value[..Math.Max(0, limit - marker.Length)] + marker;
     }
 
-    private async Task PublishProgressAsync(
-        Guid interviewId,
-        int progress,
-        string stage,
-        int estimatedTime,
-        CancellationToken cancellationToken)
+    private void PublishProgressNonBlocking(Guid interviewId, int progress, string stage, int estimatedTime)
     {
-        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interviewId)).ReportProgress(new
+        // Chain onto the previous send for this interview to preserve ordering.
+        var previous = s_progressChains.GetOrAdd(interviewId, Task.CompletedTask);
+        var next = previous.ContinueWith(async _ =>
         {
-            progress,
-            stage,
-            estimatedTime
-        });
+            try
+            {
+                await hubContext.Clients.Group(InterviewHub.BuildRoomName(interviewId)).ReportProgress(new
+                {
+                    progress,
+                    stage,
+                    estimatedTime
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "进度推送失败，interviewId={InterviewId}", interviewId);
+            }
+        }, TaskScheduler.Default).Unwrap();
+        s_progressChains[interviewId] = next;
+
+        // Clean up the chain entry when this interview's report generation is done.
+        if (stage is "completed" or "report_failed")
+        {
+            next.ContinueWith(_ => s_progressChains.TryRemove(interviewId, out _), TaskScheduler.Default);
+        }
     }
 
     private async Task PublishCompletedAsync(Guid interviewId, Guid reportId, CancellationToken cancellationToken)
@@ -353,7 +370,7 @@ public sealed class InterviewReportGenerationService(
         {
             status = InterviewStatuses.Completed
         });
-        await PublishProgressAsync(interviewId, 100, "completed", 0, cancellationToken);
+        PublishProgressNonBlocking(interviewId, 100, "completed", 0);
         await hubContext.Clients.Group(InterviewHub.BuildRoomName(interviewId)).ReportReady(new
         {
             reportId
@@ -362,6 +379,8 @@ public sealed class InterviewReportGenerationService(
 
     private async Task MarkInterviewFailedAsync(Guid interviewId, CancellationToken cancellationToken)
     {
+        s_progressChains.TryRemove(interviewId, out _);
+
         var interview = await interviewRepository.GetByIdAsync(interviewId, cancellationToken);
         if (interview is not null)
         {

@@ -33,7 +33,12 @@ import { shouldAdvanceElapsedTimer } from "@/features/interview/interview-timer"
 import { buildRealtimeInterviewMessages } from "@/features/interview/realtime-message-flow";
 import { getTagIconUrl } from "@/utils/icon-utils";
 import { getRequestErrorMessage } from "@/utils/request-error";
-import type { InterviewCurrentDetail, PositionSummary } from "@/types/api";
+import type {
+  InterviewCurrentDetail,
+  PositionSummary,
+  SignalRFollowUpPayload,
+  SignalRQuestionPayload,
+} from "@/types/api";
 
 const INTERVIEW_MODE_OPTIONS = [
   { value: "friendly", label: "轻松" },
@@ -168,6 +173,10 @@ export function InterviewClient() {
   const [draftRecoveredAt, setDraftRecoveredAt] = useState<number | null>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
 
+  const pendingAnswerRef = useRef<LocalPendingAnswer | null>(null);
+  useEffect(() => {
+    pendingAnswerRef.current = pendingAnswer;
+  }, [pendingAnswer]);
   const autoCreateAttemptRef = useRef<string | null>(null);
   const draftOwnedByEditorRef = useRef(false);
   const createInterviewOnceRef = useRef<
@@ -324,6 +333,7 @@ export function InterviewClient() {
             }
           : current,
       );
+      // SignalR 推送提供快速路径；refreshInterview 作为兜底确保数据完整
       await refreshInterview(interviewId);
     } catch (requestError) {
       setAssistantThinking(false);
@@ -473,31 +483,130 @@ export function InterviewClient() {
     const joinInterviewRoom = async () =>
       connection.invoke("JoinInterview", { interviewId });
 
-    connection.on("ReceiveQuestion", () => {
+    connection.on("ReceiveQuestion", (payload: SignalRQuestionPayload) => {
       if (!active) {
         return;
       }
       setAssistantThinking(false);
-      void refreshInterview(interviewId);
+      const capturedPending = pendingAnswerRef.current;
+      setDetail((prev) => {
+        if (!prev) return prev;
+        const messages = [...prev.messages];
+        // P1 fix: persist the user's submitted answer before appending assistant message.
+        // Check by content (not ID) to avoid duplicates when refreshInterview already
+        // fetched the server-persisted user answer before the SignalR event arrives.
+        if (
+          capturedPending &&
+          capturedPending.status !== "failed" &&
+          !messages.some(
+            (m) => m.role === "user" && m.content === capturedPending.text,
+          )
+        ) {
+          messages.push({
+            id: capturedPending.id,
+            role: "user",
+            messageType: "answer",
+            content: capturedPending.text,
+            relatedQuestionId: null,
+            sequence: payload.sequence - 1,
+            metadata: null,
+            createdAt: capturedPending.timestamp,
+          });
+        }
+        messages.push({
+          id: payload.messageId,
+          role: "assistant",
+          messageType: payload.messageType,
+          content: payload.content,
+          relatedQuestionId: payload.questionId ?? null,
+          sequence: payload.sequence,
+          metadata: null,
+          createdAt: payload.createdAt,
+        });
+        return {
+          ...prev,
+          currentRound: payload.roundNumber,
+          messages,
+        };
+      });
+      setPendingAnswer(null);
     });
-    connection.on("ReceiveFollowUp", () => {
+    connection.on("ReceiveFollowUp", (payload: SignalRFollowUpPayload) => {
       if (!active) {
         return;
       }
       setAssistantThinking(false);
+      const capturedPending = pendingAnswerRef.current;
+      setDetail((prev) => {
+        if (!prev) return prev;
+        const messages = [...prev.messages];
+        // Same content-based dedup as ReceiveQuestion
+        if (
+          capturedPending &&
+          capturedPending.status !== "failed" &&
+          !messages.some(
+            (m) => m.role === "user" && m.content === capturedPending.text,
+          )
+        ) {
+          messages.push({
+            id: capturedPending.id,
+            role: "user",
+            messageType: "answer",
+            content: capturedPending.text,
+            relatedQuestionId: null,
+            sequence: payload.sequence - 1,
+            metadata: null,
+            createdAt: capturedPending.timestamp,
+          });
+        }
+        messages.push({
+          id: payload.messageId,
+          role: "assistant",
+          messageType: payload.messageType,
+          content: payload.content,
+          relatedQuestionId: payload.questionId ?? null,
+          sequence: payload.sequence,
+          metadata: null,
+          createdAt: payload.createdAt,
+        });
+        return {
+          ...prev,
+          messages,
+        };
+      });
       setPendingAnswer((current) =>
         !current || current.status === "failed"
           ? current
           : { ...current, status: "followup" },
       );
-      void refreshInterview(interviewId);
     });
-    connection.on("InterviewStatusChanged", () => {
+    connection.on("InterviewStatusChanged", (payload?: unknown) => {
       if (!active) {
         return;
       }
       setAssistantThinking(false);
-      void refreshInterview(interviewId);
+      const newStatus =
+        payload && typeof payload === "object" && "status" in payload && typeof payload.status === "string"
+          ? (payload.status as string)
+          : null;
+      if (newStatus) {
+        // P2 fix: refresh on terminal statuses to capture closing message
+        if (newStatus === "completed" || newStatus === "generating_report" || newStatus === "report_failed") {
+          void refreshInterview(interviewId);
+          return;
+        }
+        const payloadObj = payload as Record<string, unknown>;
+        setDetail((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            status: newStatus,
+            ...(typeof payloadObj.currentRound === "number"
+              ? { currentRound: payloadObj.currentRound }
+              : {}),
+          };
+        });
+      }
     });
     connection.on("ReportReady", () => {
       if (!active) {
@@ -506,7 +615,6 @@ export function InterviewClient() {
       setAssistantThinking(false);
       setReportReady(true);
       setReportProgress({ progress: 100, stage: "completed", estimatedTime: 0 });
-      void refreshInterview(interviewId);
     });
     connection.on("TypingIndicator", (payload?: unknown) => {
       if (

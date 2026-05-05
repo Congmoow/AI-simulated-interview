@@ -530,9 +530,9 @@ sealed class ChatFlowReportQueue : IInterviewReportGenerationQueue
 
 sealed class ChatFlowInterviewClient : IInterviewClient
 {
-    public Task ReceiveQuestion(object payload) => Task.CompletedTask;
+    public Task ReceiveQuestion(SignalRQuestionPayload payload) => Task.CompletedTask;
 
-    public Task ReceiveFollowUp(object payload) => Task.CompletedTask;
+    public Task ReceiveFollowUp(SignalRFollowUpPayload payload) => Task.CompletedTask;
 
     public Task TypingIndicator(object payload) => Task.CompletedTask;
 

@@ -1,10 +1,12 @@
+using AiInterview.Api.DTOs.Interviews;
+
 namespace AiInterview.Api.Hubs;
 
 public interface IInterviewClient
 {
-    Task ReceiveQuestion(object payload);
+    Task ReceiveQuestion(SignalRQuestionPayload payload);
 
-    Task ReceiveFollowUp(object payload);
+    Task ReceiveFollowUp(SignalRFollowUpPayload payload);
 
     Task TypingIndicator(object payload);
 

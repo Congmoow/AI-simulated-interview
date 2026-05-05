@@ -159,3 +159,24 @@ public class InterviewQuestionDetailDto
     public string Type { get; set; } = string.Empty;
     public string Difficulty { get; set; } = string.Empty;
 }
+
+public class SignalRMessagePayload
+{
+    public Guid MessageId { get; set; }
+    public Guid? QuestionId { get; set; }
+    public string Content { get; set; } = string.Empty;
+    public string MessageType { get; set; } = string.Empty;
+    public string[] Suggestions { get; set; } = [];
+    public int Sequence { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
+public class SignalRQuestionPayload : SignalRMessagePayload
+{
+    public string? QuestionType { get; set; }
+    public int RoundNumber { get; set; }
+}
+
+public class SignalRFollowUpPayload : SignalRMessagePayload
+{
+}
