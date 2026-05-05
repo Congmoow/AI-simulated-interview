@@ -412,9 +412,9 @@ file sealed class CapturingInterviewClient : IInterviewClient
 
     public List<object> ErrorPayloads { get; } = [];
 
-    public Task ReceiveQuestion(object payload) => Task.CompletedTask;
+    public Task ReceiveQuestion(SignalRQuestionPayload payload) => Task.CompletedTask;
 
-    public Task ReceiveFollowUp(object payload) => Task.CompletedTask;
+    public Task ReceiveFollowUp(SignalRFollowUpPayload payload) => Task.CompletedTask;
 
     public Task TypingIndicator(object payload) => Task.CompletedTask;
 

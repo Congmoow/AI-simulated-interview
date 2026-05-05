@@ -33,7 +33,13 @@ import { shouldAdvanceElapsedTimer } from "@/features/interview/interview-timer"
 import { buildRealtimeInterviewMessages } from "@/features/interview/realtime-message-flow";
 import { getTagIconUrl } from "@/utils/icon-utils";
 import { getRequestErrorMessage } from "@/utils/request-error";
-import type { InterviewCurrentDetail, PositionSummary } from "@/types/api";
+import type {
+  InterviewCurrentDetail,
+  InterviewMessageItem,
+  PositionSummary,
+  SignalRFollowUpPayload,
+  SignalRQuestionPayload,
+} from "@/types/api";
 
 const INTERVIEW_MODE_OPTIONS = [
   { value: "friendly", label: "轻松" },
@@ -324,7 +330,7 @@ export function InterviewClient() {
             }
           : current,
       );
-      await refreshInterview(interviewId);
+      // SignalR 推送会携带完整数据并更新 UI，不再需要额外 GET 刷新
     } catch (requestError) {
       setAssistantThinking(false);
       setPendingAnswer((current) =>
@@ -345,7 +351,6 @@ export function InterviewClient() {
     detail,
     interviewId,
     persistDraft,
-    refreshInterview,
   ]);
 
   const handleFinishInterview = useCallback(async () => {
@@ -473,14 +478,32 @@ export function InterviewClient() {
     const joinInterviewRoom = async () =>
       connection.invoke("JoinInterview", { interviewId });
 
-    connection.on("ReceiveQuestion", () => {
+    connection.on("ReceiveQuestion", (payload: SignalRQuestionPayload) => {
       if (!active) {
         return;
       }
       setAssistantThinking(false);
-      void refreshInterview(interviewId);
+      setDetail((prev) => {
+        if (!prev) return prev;
+        const newMessage: InterviewMessageItem = {
+          id: payload.messageId,
+          role: "assistant",
+          messageType: payload.messageType,
+          content: payload.content,
+          relatedQuestionId: payload.questionId ?? null,
+          sequence: payload.sequence,
+          metadata: null,
+          createdAt: payload.createdAt,
+        };
+        return {
+          ...prev,
+          currentRound: payload.roundNumber,
+          messages: [...prev.messages, newMessage],
+        };
+      });
+      setPendingAnswer(null);
     });
-    connection.on("ReceiveFollowUp", () => {
+    connection.on("ReceiveFollowUp", (payload: SignalRFollowUpPayload) => {
       if (!active) {
         return;
       }
@@ -490,14 +513,46 @@ export function InterviewClient() {
           ? current
           : { ...current, status: "followup" },
       );
-      void refreshInterview(interviewId);
+      setDetail((prev) => {
+        if (!prev) return prev;
+        const newMessage: InterviewMessageItem = {
+          id: payload.messageId,
+          role: "assistant",
+          messageType: payload.messageType,
+          content: payload.content,
+          relatedQuestionId: payload.questionId ?? null,
+          sequence: payload.sequence,
+          metadata: null,
+          createdAt: payload.createdAt,
+        };
+        return {
+          ...prev,
+          messages: [...prev.messages, newMessage],
+        };
+      });
     });
-    connection.on("InterviewStatusChanged", () => {
+    connection.on("InterviewStatusChanged", (payload?: unknown) => {
       if (!active) {
         return;
       }
       setAssistantThinking(false);
-      void refreshInterview(interviewId);
+      if (
+        payload &&
+        typeof payload === "object" &&
+        "status" in payload &&
+        typeof payload.status === "string"
+      ) {
+        setDetail((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            status: payload.status as string,
+            ...("currentRound" in payload && typeof payload.currentRound === "number"
+              ? { currentRound: payload.currentRound }
+              : {}),
+          };
+        });
+      }
     });
     connection.on("ReportReady", () => {
       if (!active) {
@@ -506,7 +561,6 @@ export function InterviewClient() {
       setAssistantThinking(false);
       setReportReady(true);
       setReportProgress({ progress: 100, stage: "completed", estimatedTime: 0 });
-      void refreshInterview(interviewId);
     });
     connection.on("TypingIndicator", (payload?: unknown) => {
       if (

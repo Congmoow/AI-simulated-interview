@@ -261,3 +261,30 @@ export interface KnowledgeDocumentItem {
   createdAt: string;
   processedAt?: string | null;
 }
+
+export interface SignalRMessagePayload {
+  messageId: string;
+  questionId?: string | null;
+  content: string;
+  messageType: string;
+  suggestions: string[];
+  sequence: number;
+  createdAt: string;
+}
+
+export interface SignalRQuestionPayload extends SignalRMessagePayload {
+  questionType?: string | null;
+  roundNumber: number;
+}
+
+export type SignalRFollowUpPayload = SignalRMessagePayload;
+
+export interface SignalRReportProgress {
+  progress: number;
+  stage: string;
+  estimatedTime: number;
+}
+
+export interface SignalRReportReady {
+  reportId: string;
+}

@@ -66,10 +66,10 @@ public sealed class InterviewReportGenerationService(
                 ? MapExistingScore(existingScoreEntity)
                 : await GenerateScoreAsync(interview, orderedRounds, cancellationToken);
 
-            await PublishProgressAsync(interview.Id, 60, "reporting", 15, cancellationToken);
+            PublishProgressNonBlocking(interview.Id, 60, "reporting", 15);
             var report = await GenerateReportWithFallbackAsync(interview, orderedRounds, score, cancellationToken);
 
-            await PublishProgressAsync(interview.Id, 90, "saving", 5, cancellationToken);
+            PublishProgressNonBlocking(interview.Id, 90, "saving", 5);
 
             var scoreEntity = existingScoreEntity ?? new InterviewScore
             {
@@ -132,7 +132,7 @@ public sealed class InterviewReportGenerationService(
             "开始评分，interviewId={InterviewId} roundCount={RoundCount}",
             interview.Id,
             orderedRounds.Count);
-        await PublishProgressAsync(interview.Id, 30, "scoring", 20, cancellationToken);
+        PublishProgressNonBlocking(interview.Id, 30, "scoring", 20);
 
         var sw = Stopwatch.StartNew();
         var score = await aiIntegrationService.ScoreAsync(new ScoreAiRequest
@@ -332,18 +332,23 @@ public sealed class InterviewReportGenerationService(
         return value[..Math.Max(0, limit - marker.Length)] + marker;
     }
 
-    private async Task PublishProgressAsync(
-        Guid interviewId,
-        int progress,
-        string stage,
-        int estimatedTime,
-        CancellationToken cancellationToken)
+    private void PublishProgressNonBlocking(Guid interviewId, int progress, string stage, int estimatedTime)
     {
-        await hubContext.Clients.Group(InterviewHub.BuildRoomName(interviewId)).ReportProgress(new
+        _ = Task.Run(async () =>
         {
-            progress,
-            stage,
-            estimatedTime
+            try
+            {
+                await hubContext.Clients.Group(InterviewHub.BuildRoomName(interviewId)).ReportProgress(new
+                {
+                    progress,
+                    stage,
+                    estimatedTime
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "进度推送失败，interviewId={InterviewId}", interviewId);
+            }
         });
     }
 
@@ -353,7 +358,7 @@ public sealed class InterviewReportGenerationService(
         {
             status = InterviewStatuses.Completed
         });
-        await PublishProgressAsync(interviewId, 100, "completed", 0, cancellationToken);
+        PublishProgressNonBlocking(interviewId, 100, "completed", 0);
         await hubContext.Clients.Group(InterviewHub.BuildRoomName(interviewId)).ReportReady(new
         {
             reportId
