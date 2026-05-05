@@ -92,6 +92,7 @@ test("HTTP 请求应从内存态会话注入 Authorization 头", async () => {
       username: "tester",
       email: "tester@example.com",
       role: "user",
+      createdAt: new Date().toISOString(),
     },
   });
 
@@ -129,6 +130,7 @@ test("收到 401 且刷新失败时应清空会话并拉起登录弹窗", async 
       username: "tester",
       email: "tester@example.com",
       role: "user",
+      createdAt: new Date().toISOString(),
     },
   });
 

@@ -1,8 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { useAuthStore } from "./auth-store.ts";
-
 type StorageMock = {
   getItem: (key: string) => string | null;
   setItem: (key: string, value: string) => void;
@@ -33,26 +31,21 @@ function createStorageMock(): StorageMock {
   };
 }
 
-function installWindowMock() {
-  const localStorage = createStorageMock();
-  const sessionStorage = createStorageMock();
+// Install localStorage mock BEFORE importing the store, because zustand's
+// persist middleware captures the storage reference at module load time.
+const sharedLocalStorage = createStorageMock();
+Object.defineProperty(globalThis, "localStorage", {
+  configurable: true,
+  value: sharedLocalStorage,
+});
+Object.defineProperty(globalThis, "window", {
+  configurable: true,
+  value: { localStorage: sharedLocalStorage, sessionStorage: createStorageMock() },
+});
 
-  Object.defineProperty(globalThis, "window", {
-    configurable: true,
-    value: {
-      localStorage,
-      sessionStorage,
-    },
-  });
-
-  return {
-    localStorage,
-    sessionStorage,
-    cleanup() {
-      Reflect.deleteProperty(globalThis, "window");
-    },
-  };
-}
+// require() runs synchronously, so the mock is in place when the store initializes.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { useAuthStore } = require("./auth-store.ts") as typeof import("./auth-store.ts");
 
 function resetAuthStore() {
   useAuthStore.setState(useAuthStore.getInitialState());
@@ -71,7 +64,7 @@ test("认证状态默认未 hydrate，需等待持久化恢复", () => {
 
 test("登录态更新应持久化到 localStorage", () => {
   resetAuthStore();
-  const { localStorage, cleanup } = installWindowMock();
+  sharedLocalStorage.clear();
 
   try {
     useAuthStore.getState().setSession({
@@ -83,12 +76,13 @@ test("登录态更新应持久化到 localStorage", () => {
         username: "tester",
         email: "tester@example.com",
         role: "user",
+        createdAt: new Date().toISOString(),
       },
     });
 
     assert.equal(useAuthStore.getState().accessToken, "access-token");
 
-    const stored = localStorage.getItem("ai-interview-auth");
+    const stored = sharedLocalStorage.getItem("ai-interview-auth");
     assert.notEqual(stored, null);
     const parsed = JSON.parse(stored!);
     assert.equal(parsed.state.accessToken, "access-token");
@@ -101,6 +95,6 @@ test("登录态更新应持久化到 localStorage", () => {
     assert.equal(useAuthStore.getState().refreshToken, null);
     assert.equal(useAuthStore.getState().user, null);
   } finally {
-    cleanup();
+    // cleanup
   }
 });
