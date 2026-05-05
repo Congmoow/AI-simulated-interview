@@ -35,7 +35,6 @@ import { getTagIconUrl } from "@/utils/icon-utils";
 import { getRequestErrorMessage } from "@/utils/request-error";
 import type {
   InterviewCurrentDetail,
-  InterviewMessageItem,
   PositionSummary,
   SignalRFollowUpPayload,
   SignalRQuestionPayload,
@@ -174,6 +173,10 @@ export function InterviewClient() {
   const [draftRecoveredAt, setDraftRecoveredAt] = useState<number | null>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
 
+  const pendingAnswerRef = useRef<LocalPendingAnswer | null>(null);
+  useEffect(() => {
+    pendingAnswerRef.current = pendingAnswer;
+  }, [pendingAnswer]);
   const autoCreateAttemptRef = useRef<string | null>(null);
   const draftOwnedByEditorRef = useRef(false);
   const createInterviewOnceRef = useRef<
@@ -483,9 +486,28 @@ export function InterviewClient() {
         return;
       }
       setAssistantThinking(false);
+      const capturedPending = pendingAnswerRef.current;
       setDetail((prev) => {
         if (!prev) return prev;
-        const newMessage: InterviewMessageItem = {
+        const messages = [...prev.messages];
+        // P1 fix: persist the user's submitted answer before appending assistant message
+        if (
+          capturedPending &&
+          capturedPending.status !== "failed" &&
+          !messages.some((m) => m.id === capturedPending.id)
+        ) {
+          messages.push({
+            id: capturedPending.id,
+            role: "user",
+            messageType: "answer",
+            content: capturedPending.text,
+            relatedQuestionId: null,
+            sequence: payload.sequence - 1,
+            metadata: null,
+            createdAt: capturedPending.timestamp,
+          });
+        }
+        messages.push({
           id: payload.messageId,
           role: "assistant",
           messageType: payload.messageType,
@@ -494,11 +516,11 @@ export function InterviewClient() {
           sequence: payload.sequence,
           metadata: null,
           createdAt: payload.createdAt,
-        };
+        });
         return {
           ...prev,
           currentRound: payload.roundNumber,
-          messages: [...prev.messages, newMessage],
+          messages,
         };
       });
       setPendingAnswer(null);
@@ -508,14 +530,28 @@ export function InterviewClient() {
         return;
       }
       setAssistantThinking(false);
-      setPendingAnswer((current) =>
-        !current || current.status === "failed"
-          ? current
-          : { ...current, status: "followup" },
-      );
+      const capturedPending = pendingAnswerRef.current;
       setDetail((prev) => {
         if (!prev) return prev;
-        const newMessage: InterviewMessageItem = {
+        const messages = [...prev.messages];
+        // P1 fix: persist the user's submitted answer before appending assistant message
+        if (
+          capturedPending &&
+          capturedPending.status !== "failed" &&
+          !messages.some((m) => m.id === capturedPending.id)
+        ) {
+          messages.push({
+            id: capturedPending.id,
+            role: "user",
+            messageType: "answer",
+            content: capturedPending.text,
+            relatedQuestionId: null,
+            sequence: payload.sequence - 1,
+            metadata: null,
+            createdAt: capturedPending.timestamp,
+          });
+        }
+        messages.push({
           id: payload.messageId,
           role: "assistant",
           messageType: payload.messageType,
@@ -524,31 +560,40 @@ export function InterviewClient() {
           sequence: payload.sequence,
           metadata: null,
           createdAt: payload.createdAt,
-        };
+        });
         return {
           ...prev,
-          messages: [...prev.messages, newMessage],
+          messages,
         };
       });
+      setPendingAnswer((current) =>
+        !current || current.status === "failed"
+          ? current
+          : { ...current, status: "followup" },
+      );
     });
     connection.on("InterviewStatusChanged", (payload?: unknown) => {
       if (!active) {
         return;
       }
       setAssistantThinking(false);
-      if (
-        payload &&
-        typeof payload === "object" &&
-        "status" in payload &&
-        typeof payload.status === "string"
-      ) {
+      const newStatus =
+        payload && typeof payload === "object" && "status" in payload && typeof payload.status === "string"
+          ? (payload.status as string)
+          : null;
+      if (newStatus) {
+        // P2 fix: refresh on terminal statuses to capture closing message
+        if (newStatus === "completed" || newStatus === "generating_report" || newStatus === "report_failed") {
+          void refreshInterview(interviewId);
+          return;
+        }
         setDetail((prev) => {
           if (!prev) return prev;
           return {
             ...prev,
-            status: payload.status as string,
-            ...("currentRound" in payload && typeof payload.currentRound === "number"
-              ? { currentRound: payload.currentRound }
+            status: newStatus,
+            ...("currentRound" in payload! && typeof (payload as Record<string, unknown>).currentRound === "number"
+              ? { currentRound: (payload as Record<string, unknown>).currentRound as number }
               : {}),
           };
         });
