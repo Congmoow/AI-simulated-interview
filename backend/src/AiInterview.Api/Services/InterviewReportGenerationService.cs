@@ -6,6 +6,7 @@ using AiInterview.Api.Models.Entities;
 using AiInterview.Api.Repositories.Interfaces;
 using AiInterview.Api.Services.Interfaces;
 using Microsoft.AspNetCore.SignalR;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
@@ -20,6 +21,8 @@ public sealed class InterviewReportGenerationService(
     IHubContext<InterviewHub, IInterviewClient> hubContext,
     ILogger<InterviewReportGenerationService> logger) : IInterviewReportGenerationService
 {
+    // Per-interview chain ensures progress sends arrive in monotonic order.
+    private static readonly ConcurrentDictionary<Guid, Task> s_progressChains = new();
     private const string DefaultReportSystemPrompt =
         """
         你是一名中文技术面试复盘顾问。
@@ -334,7 +337,9 @@ public sealed class InterviewReportGenerationService(
 
     private void PublishProgressNonBlocking(Guid interviewId, int progress, string stage, int estimatedTime)
     {
-        _ = Task.Run(async () =>
+        // Chain onto the previous send for this interview to preserve ordering.
+        var previous = s_progressChains.GetOrAdd(interviewId, Task.CompletedTask);
+        var next = previous.ContinueWith(async _ =>
         {
             try
             {
@@ -349,7 +354,14 @@ public sealed class InterviewReportGenerationService(
             {
                 logger.LogWarning(ex, "进度推送失败，interviewId={InterviewId}", interviewId);
             }
-        });
+        }, TaskScheduler.Default).Unwrap();
+        s_progressChains[interviewId] = next;
+
+        // Clean up the chain entry when this interview's report generation is done.
+        if (stage is "completed" or "report_failed")
+        {
+            next.ContinueWith(_ => s_progressChains.TryRemove(interviewId, out _), TaskScheduler.Default);
+        }
     }
 
     private async Task PublishCompletedAsync(Guid interviewId, Guid reportId, CancellationToken cancellationToken)
