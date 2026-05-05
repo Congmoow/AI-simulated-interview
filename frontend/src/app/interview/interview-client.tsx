@@ -589,13 +589,14 @@ export function InterviewClient() {
           void refreshInterview(interviewId);
           return;
         }
+        const payloadObj = payload as Record<string, unknown>;
         setDetail((prev) => {
           if (!prev) return prev;
           return {
             ...prev,
             status: newStatus,
-            ...("currentRound" in payload! && typeof (payload as Record<string, unknown>).currentRound === "number"
-              ? { currentRound: (payload as Record<string, unknown>).currentRound as number }
+            ...(typeof payloadObj.currentRound === "number"
+              ? { currentRound: payloadObj.currentRound }
               : {}),
           };
         });
