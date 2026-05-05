@@ -492,11 +492,15 @@ export function InterviewClient() {
       setDetail((prev) => {
         if (!prev) return prev;
         const messages = [...prev.messages];
-        // P1 fix: persist the user's submitted answer before appending assistant message
+        // P1 fix: persist the user's submitted answer before appending assistant message.
+        // Check by content (not ID) to avoid duplicates when refreshInterview already
+        // fetched the server-persisted user answer before the SignalR event arrives.
         if (
           capturedPending &&
           capturedPending.status !== "failed" &&
-          !messages.some((m) => m.id === capturedPending.id)
+          !messages.some(
+            (m) => m.role === "user" && m.content === capturedPending.text,
+          )
         ) {
           messages.push({
             id: capturedPending.id,
@@ -536,11 +540,13 @@ export function InterviewClient() {
       setDetail((prev) => {
         if (!prev) return prev;
         const messages = [...prev.messages];
-        // P1 fix: persist the user's submitted answer before appending assistant message
+        // Same content-based dedup as ReceiveQuestion
         if (
           capturedPending &&
           capturedPending.status !== "failed" &&
-          !messages.some((m) => m.id === capturedPending.id)
+          !messages.some(
+            (m) => m.role === "user" && m.content === capturedPending.text,
+          )
         ) {
           messages.push({
             id: capturedPending.id,

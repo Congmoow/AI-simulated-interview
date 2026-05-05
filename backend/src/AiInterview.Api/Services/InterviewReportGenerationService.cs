@@ -379,6 +379,8 @@ public sealed class InterviewReportGenerationService(
 
     private async Task MarkInterviewFailedAsync(Guid interviewId, CancellationToken cancellationToken)
     {
+        s_progressChains.TryRemove(interviewId, out _);
+
         var interview = await interviewRepository.GetByIdAsync(interviewId, cancellationToken);
         if (interview is not null)
         {
