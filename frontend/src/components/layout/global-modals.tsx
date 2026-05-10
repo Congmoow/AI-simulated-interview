@@ -1,21 +1,21 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { AuthModal } from "@/components/auth/auth-modal";
 import { useAuthModalStore } from "@/stores/auth-modal-store";
 
 export function GlobalModals() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const openLogin = useAuthModalStore((state) => state.openLogin);
 
   useEffect(() => {
-    if (searchParams.get("auth") === "login") {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("auth") === "login") {
       openLogin(null);
       router.replace("/");
     }
-  }, [searchParams, openLogin, router]);
+  }, [openLogin, router]);
 
   return <AuthModal />;
 }

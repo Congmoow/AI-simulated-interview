@@ -8,9 +8,13 @@ public interface IAiIntegrationService
 
     Task<AnswerAiResponse> AnswerAsync(AnswerAiRequest request, CancellationToken cancellationToken = default);
 
+    Task<AnswerAiResponse?> AnswerStreamAsync(AnswerAiRequest request, Func<string, Task> onChunk, CancellationToken cancellationToken = default);
+
     Task<ScoreAiResponse> ScoreAsync(ScoreAiRequest request, CancellationToken cancellationToken = default);
 
     Task<ReportAiResponse> GenerateReportAsync(ReportAiRequest request, CancellationToken cancellationToken = default);
+
+    Task<ScoreAndReportAiResponse?> ScoreAndReportAsync(ScoreAiRequest request, CancellationToken cancellationToken = default);
 
     Task<TrainingPlanAiResponse> GenerateTrainingPlanAsync(TrainingPlanAiRequest request, CancellationToken cancellationToken = default);
 
@@ -147,6 +151,23 @@ public class ReportAiRequest
 
 public class ReportAiResponse
 {
+    public string ExecutiveSummary { get; set; } = string.Empty;
+    public string[] Strengths { get; set; } = [];
+    public string[] Weaknesses { get; set; } = [];
+    public Dictionary<string, object> DetailedAnalysis { get; set; } = [];
+    public string[] LearningSuggestions { get; set; } = [];
+    public object[] TrainingPlan { get; set; } = [];
+    public string[] NextInterviewFocus { get; set; } = [];
+    public string ModelVersion { get; set; } = string.Empty;
+}
+
+public class ScoreAndReportAiResponse
+{
+    public decimal OverallScore { get; set; }
+    public Dictionary<string, DimensionScoreDto> DimensionScores { get; set; } = [];
+    public Dictionary<string, string> DimensionDetails { get; set; } = [];
+    public Dictionary<string, object> ScoreBreakdown { get; set; } = [];
+    public decimal RankPercentile { get; set; }
     public string ExecutiveSummary { get; set; } = string.Empty;
     public string[] Strengths { get; set; } = [];
     public string[] Weaknesses { get; set; } = [];

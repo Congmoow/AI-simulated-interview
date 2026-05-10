@@ -232,7 +232,7 @@ public class InterviewService(
         await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).TypingIndicator(new { isTyping = true });
 
         var questionBank = await catalogRepository.GetQuestionsByPositionAsync(interview.PositionCode, interview.QuestionTypes, cancellationToken);
-        var aiResponse = await aiIntegrationService.AnswerAsync(new AnswerAiRequest
+        var aiRequest = new AnswerAiRequest
         {
             InterviewId = interview.Id,
             PositionCode = interview.PositionCode,
@@ -256,7 +256,48 @@ public class InterviewService(
                 .ToList(),
             HistoryAnswerSummaries = BuildHistoryAnswerSummaries(interview),
             Limits = limits
-        }, cancellationToken);
+        };
+
+        // 尝试流式调用，逐块推送内容到前端
+        var roomName = InterviewHub.BuildRoomName(interview.Id);
+        var streamingFailed = false;
+        var aiResponse = await aiIntegrationService.AnswerStreamAsync(
+            aiRequest,
+            async (chunkText) =>
+            {
+                try
+                {
+                    await hubContext.Clients.Group(roomName).ReceiveContentChunk(new
+                    {
+                        interviewId = interview.Id,
+                        text = chunkText,
+                        isFinal = false
+                    });
+                }
+                catch { streamingFailed = true; }
+            },
+            cancellationToken);
+
+        // 流式失败时回退到普通调用
+        if (aiResponse is null)
+        {
+            logger.LogInformation("流式调用失败，回退到普通模式，interviewId={InterviewId}", interview.Id);
+            aiResponse = await aiIntegrationService.AnswerAsync(aiRequest, cancellationToken);
+        }
+        else
+        {
+            // 发送最终完成信号
+            try
+            {
+                await hubContext.Clients.Group(roomName).ReceiveContentChunk(new
+                {
+                    interviewId = interview.Id,
+                    text = "",
+                    isFinal = true
+                });
+            }
+            catch { /* ignore */ }
+        }
 
         if (string.Equals(aiResponse.Action, AiInterviewActions.FollowUp, StringComparison.Ordinal))
         {

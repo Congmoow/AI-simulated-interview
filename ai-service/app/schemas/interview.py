@@ -110,3 +110,19 @@ class ScoreInterviewResponse(BaseModel):
     score_breakdown: dict[str, Any] = Field(default_factory=dict, alias="scoreBreakdown")
     rank_percentile: float = Field(alias="rankPercentile", ge=0, le=100)
     model_version: str = Field(alias="modelVersion", min_length=1, max_length=100)
+
+
+class ScoreAndReportResponse(BaseModel):
+    overall_score: float = Field(alias="overallScore", ge=0, le=100)
+    dimension_scores: dict[str, DimensionScore] = Field(default_factory=dict, alias="dimensionScores")
+    dimension_details: dict[str, str] = Field(default_factory=dict, alias="dimensionDetails")
+    score_breakdown: dict[str, Any] = Field(default_factory=dict, alias="scoreBreakdown")
+    rank_percentile: float = Field(alias="rankPercentile", ge=0, le=100)
+    executive_summary: str = Field(alias="executiveSummary", min_length=1, max_length=10000)
+    strengths: list[str] = Field(default_factory=list)
+    weaknesses: list[str] = Field(default_factory=list)
+    detailed_analysis: dict[str, Any] = Field(default_factory=dict, alias="detailedAnalysis")
+    learning_suggestions: list[str] = Field(default_factory=list, alias="learningSuggestions")
+    training_plan: list[Any] = Field(default_factory=list, alias="trainingPlan")
+    next_interview_focus: list[str] = Field(default_factory=list, alias="nextInterviewFocus")
+    model_version: str = Field(alias="modelVersion", min_length=1, max_length=100)

@@ -25,6 +25,83 @@ public class AiIntegrationService(HttpClient httpClient, IOptions<AiServiceOptio
         return await PostAsync<AnswerAiRequest, AnswerAiResponse>("/interview/answer", request, cancellationToken);
     }
 
+    public async Task<AnswerAiResponse?> AnswerStreamAsync(AnswerAiRequest request, Func<string, Task> onChunk, CancellationToken cancellationToken = default)
+    {
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "/interview/answer-stream")
+        {
+            Content = JsonContent.Create(request, options: JsonOptions)
+        };
+
+        if (!string.IsNullOrWhiteSpace(_apiKey))
+        {
+            httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
+        }
+
+        try
+        {
+            using var response = await httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning("流式调用失败，status={Status}", (int)response.StatusCode);
+                return null;
+            }
+
+            using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            using var reader = new System.IO.StreamReader(stream);
+
+            AnswerAiResponse? finalResult = null;
+            while (!reader.EndOfStream)
+            {
+                var line = await reader.ReadLineAsync(cancellationToken);
+                if (line is null) break;
+
+                if (line.StartsWith("event: "))
+                {
+                    var eventType = line[7..].Trim();
+                    var dataLine = await reader.ReadLineAsync(cancellationToken);
+                    if (dataLine is null || !dataLine.StartsWith("data: ")) continue;
+                    var data = dataLine[6..];
+
+                    if (eventType == "chunk")
+                    {
+                        try
+                        {
+                            var chunkObj = System.Text.Json.JsonSerializer.Deserialize<JsonElement>(data);
+                            if (chunkObj.TryGetProperty("text", out var textProp))
+                            {
+                                await onChunk(textProp.GetString() ?? "");
+                            }
+                        }
+                        catch { /* ignore parse errors */ }
+                    }
+                    else if (eventType == "done")
+                    {
+                        try
+                        {
+                            finalResult = System.Text.Json.JsonSerializer.Deserialize<AnswerAiResponse>(data, JsonOptions);
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.LogWarning(ex, "解析流式最终结果失败");
+                        }
+                    }
+                    else if (eventType == "error")
+                    {
+                        logger.LogWarning("流式调用错误: {Data}", data);
+                        return null;
+                    }
+                }
+            }
+
+            return finalResult;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "流式调用异常，回退到普通模式");
+            return null;
+        }
+    }
+
     public async Task<ScoreAiResponse> ScoreAsync(ScoreAiRequest request, CancellationToken cancellationToken = default)
     {
         return await PostAsync<ScoreAiRequest, ScoreAiResponse>("/evaluation/score", request, cancellationToken);
@@ -33,6 +110,19 @@ public class AiIntegrationService(HttpClient httpClient, IOptions<AiServiceOptio
     public async Task<ReportAiResponse> GenerateReportAsync(ReportAiRequest request, CancellationToken cancellationToken = default)
     {
         return await PostAsync<ReportAiRequest, ReportAiResponse>("/report/generate", request, cancellationToken);
+    }
+
+    public async Task<ScoreAndReportAiResponse?> ScoreAndReportAsync(ScoreAiRequest request, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await PostAsync<ScoreAiRequest, ScoreAndReportAiResponse>("/evaluation/score-and-report", request, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "合并评分报告调用失败，将回退到串行模式");
+            return null;
+        }
     }
 
     public async Task<TrainingPlanAiResponse> GenerateTrainingPlanAsync(TrainingPlanAiRequest request, CancellationToken cancellationToken = default)

@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
 import type { CurrentUser } from "@/types/api";
 
 const AUTH_STORAGE_KEY = "ai-interview-auth";
@@ -29,13 +29,14 @@ export const useAuthStore = create<AuthState>()(
       refreshToken: null,
       expiresIn: null,
       user: null,
-      hydrated: false,
+      hydrated: true,
       setSession: (payload) => {
         set({
           accessToken: payload.accessToken,
           refreshToken: payload.refreshToken,
           expiresIn: payload.expiresIn,
           user: payload.user,
+          hydrated: true,
         });
       },
       clearSession: () => {
@@ -50,16 +51,26 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: AUTH_STORAGE_KEY,
+      storage: createJSONStorage(() => {
+        if (typeof window !== "undefined") {
+          return localStorage;
+        }
+        return {
+          getItem: () => null,
+          setItem: () => {},
+          removeItem: () => {},
+        };
+      }),
       partialize: (state) => ({
         accessToken: state.accessToken,
         refreshToken: state.refreshToken,
         expiresIn: state.expiresIn,
         user: state.user,
       }),
-      onRehydrateStorage: () => (_state, error) => {
-        if (!error) {
+      onRehydrateStorage: () => {
+        return (_state, _error) => {
           useAuthStore.setState({ hydrated: true });
-        }
+        };
       },
     },
   ),

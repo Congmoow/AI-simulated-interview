@@ -65,12 +65,58 @@ public sealed class InterviewReportGenerationService(
             var orderedRounds = BuildOrderedRounds(interview);
             var existingScoreEntity = interview.Score
                 ?? await reportRepository.GetScoreByInterviewIdAsync(interview.Id, cancellationToken);
-            var score = existingScoreEntity is not null
-                ? MapExistingScore(existingScoreEntity)
-                : await GenerateScoreAsync(interview, orderedRounds, cancellationToken);
 
-            PublishProgressNonBlocking(interview.Id, 60, "reporting", 15);
-            var report = await GenerateReportWithFallbackAsync(interview, orderedRounds, score, cancellationToken);
+            ScoreAiResponse score;
+            ReportAiResponse report;
+
+            if (existingScoreEntity is not null)
+            {
+                score = MapExistingScore(existingScoreEntity);
+                PublishProgressNonBlocking(interview.Id, 60, "reporting", 15);
+                report = await GenerateReportWithFallbackAsync(interview, orderedRounds, score, cancellationToken);
+            }
+            else
+            {
+                PublishProgressNonBlocking(interview.Id, 30, "scoring", 30);
+                var combined = await aiIntegrationService.ScoreAndReportAsync(new ScoreAiRequest
+                {
+                    InterviewId = interview.Id,
+                    PositionCode = interview.PositionCode,
+                    Rounds = orderedRounds
+                }, cancellationToken);
+
+                if (combined is not null)
+                {
+                    logger.LogInformation("合并评分报告成功，interviewId={InterviewId}", interview.Id);
+                    score = new ScoreAiResponse
+                    {
+                        OverallScore = combined.OverallScore,
+                        DimensionScores = combined.DimensionScores,
+                        DimensionDetails = combined.DimensionDetails,
+                        ScoreBreakdown = combined.ScoreBreakdown,
+                        RankPercentile = combined.RankPercentile,
+                        ModelVersion = combined.ModelVersion,
+                    };
+                    report = new ReportAiResponse
+                    {
+                        ExecutiveSummary = combined.ExecutiveSummary,
+                        Strengths = combined.Strengths,
+                        Weaknesses = combined.Weaknesses,
+                        DetailedAnalysis = combined.DetailedAnalysis,
+                        LearningSuggestions = combined.LearningSuggestions,
+                        TrainingPlan = combined.TrainingPlan,
+                        NextInterviewFocus = combined.NextInterviewFocus,
+                        ModelVersion = combined.ModelVersion,
+                    };
+                }
+                else
+                {
+                    logger.LogInformation("合并调用失败，回退串行模式，interviewId={InterviewId}", interview.Id);
+                    score = await GenerateScoreAsync(interview, orderedRounds, cancellationToken);
+                    PublishProgressNonBlocking(interview.Id, 60, "reporting", 15);
+                    report = await GenerateReportWithFallbackAsync(interview, orderedRounds, score, cancellationToken);
+                }
+            }
 
             PublishProgressNonBlocking(interview.Id, 90, "saving", 5);
 

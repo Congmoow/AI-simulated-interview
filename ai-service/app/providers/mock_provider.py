@@ -6,6 +6,7 @@ from app.schemas.document import ChunkResult, ProcessDocumentRequest, ProcessDoc
 from app.schemas.interview import (
     AnswerInterviewRequest,
     AnswerInterviewResponse,
+    ScoreAndReportResponse,
     ScoreInterviewRequest,
     ScoreInterviewResponse,
     StartInterviewRequest,
@@ -103,6 +104,11 @@ class MockProvider:
             metadata={"selectedQuestionTitle": next_question.title},
         )
 
+    async def answer_interview_streaming(self, request: AnswerInterviewRequest):
+        result = await self.answer_interview(request)
+        yield {"type": "chunk", "text": result.content}
+        yield {"type": "done", "response": result}
+
     @classmethod
     def _normalize_answer(cls, answer: str) -> str:
         return re.sub(r"[\s\W_]+", "", answer.lower())
@@ -148,6 +154,24 @@ class MockProvider:
 
     async def generate_report(self, request: GenerateReportRequest) -> GenerateReportResponse:
         return GenerateReportResponse(
+            executiveSummary="mock summary",
+            strengths=["结构清晰"],
+            weaknesses=["深度不足"],
+            detailedAnalysis={"topic": "core principles"},
+            learningSuggestions=["补强底层原理"],
+            trainingPlan=[],
+            nextInterviewFocus=["project trade-offs"],
+            modelVersion="mock-provider-v2",
+        )
+
+    async def score_and_report_interview(self, request: ScoreInterviewRequest) -> ScoreAndReportResponse:
+        score = await self.score_interview(request)
+        return ScoreAndReportResponse(
+            overallScore=score.overall_score,
+            dimensionScores=score.dimension_scores,
+            dimensionDetails=score.dimension_details,
+            scoreBreakdown=score.score_breakdown,
+            rankPercentile=score.rank_percentile,
             executiveSummary="mock summary",
             strengths=["结构清晰"],
             weaknesses=["深度不足"],

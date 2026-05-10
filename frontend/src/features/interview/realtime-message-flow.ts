@@ -21,10 +21,12 @@ export function buildRealtimeInterviewMessages({
   pendingAnswer,
   pendingAnswerAlreadyPersisted,
   assistantThinking,
+  streamingText,
 }: {
   pendingAnswer: RealtimePendingAnswer | null;
   pendingAnswerAlreadyPersisted: boolean;
   assistantThinking: boolean;
+  streamingText?: string | null;
 }): InterviewTimelineMessage[] {
   const messages: InterviewTimelineMessage[] = [];
 
@@ -42,8 +44,9 @@ export function buildRealtimeInterviewMessages({
     messages.push({
       id: "assistant-thinking",
       kind: "assistant",
-      body: "分析中",
+      body: streamingText && streamingText.length > 0 ? streamingText : "分析中",
       isThinking: true,
+      isStreaming: !!streamingText && streamingText.length > 0,
     });
   }
 

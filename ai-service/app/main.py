@@ -13,6 +13,17 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    # 预热 runtime settings 缓存
+    try:
+        from app.services.backend_ai_settings import fetch_runtime_ai_settings
+        logger.info("预热 runtime settings 缓存...")
+        settings = fetch_runtime_ai_settings(force_refresh=True)
+        if settings:
+            logger.info("预热完成: provider=%s model=%s", settings.provider, settings.model)
+        else:
+            logger.warning("预热: runtime settings 为空，将使用 mock provider")
+    except Exception:
+        logger.exception("预热 runtime settings 失败")
     yield
 
 
