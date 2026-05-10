@@ -108,7 +108,7 @@ def get_shared_http_client(base_url: str, api_key: str) -> httpx.AsyncClient:
             client = httpx.AsyncClient(
                 base_url=f"{base_url.rstrip('/')}/",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                http2=False,
+                http2=True,
             )
             _shared_clients[key] = client
         return client
