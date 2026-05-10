@@ -41,6 +41,12 @@ public static class ExternalDependenciesExtensions
 
         services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisConnectionString));
 
+        services.AddStackExchangeRedisCache(options =>
+        {
+            options.Configuration = redisConnectionString;
+            options.InstanceName = "ai_interview:";
+        });
+
         services.AddCors(options =>
         {
             options.AddPolicy("frontend", policy =>
@@ -59,6 +65,12 @@ public static class ExternalDependenciesExtensions
             var options = serviceProvider.GetRequiredService<IOptions<AiServiceOptions>>().Value;
             client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/'));
             client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+        })
+        .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+        {
+            AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate,
+            PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+            MaxConnectionsPerServer = 20
         });
 
         return services;

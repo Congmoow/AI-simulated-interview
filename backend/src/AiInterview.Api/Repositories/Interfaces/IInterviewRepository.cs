@@ -12,6 +12,8 @@ public interface IInterviewRepository
 
     Task<Interview?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
+    Task<Interview?> GetByIdLightAsync(Guid id, CancellationToken cancellationToken = default);
+
     Task<Interview?> GetByIdWithDetailsAsync(Guid id, CancellationToken cancellationToken = default);
 
     Task<List<InterviewMessage>> GetMessagesAsync(Guid interviewId, CancellationToken cancellationToken = default);

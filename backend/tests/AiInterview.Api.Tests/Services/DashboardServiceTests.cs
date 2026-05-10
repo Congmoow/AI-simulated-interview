@@ -5,6 +5,7 @@ using AiInterview.Api.Repositories.Interfaces;
 using AiInterview.Api.Services;
 using AiInterview.Api.Services.Interfaces;
 using FluentAssertions;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -64,6 +65,11 @@ sealed class InMemoryDashboardInterviewRepository : IInterviewRepository
     }
 
     public Task<Interview?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(Interviews.FirstOrDefault(x => x.Id == id));
+    }
+
+    public Task<Interview?> GetByIdLightAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return Task.FromResult(Interviews.FirstOrDefault(x => x.Id == id));
     }
@@ -1012,6 +1018,16 @@ public class DashboardServiceTests
                     reportRepository,
                     aiSettingsService ?? new DashboardStubAiSettingsService(),
                     memoryCache ?? new MemoryCache(new MemoryCacheOptions()),
+                    NullLogger<DashboardService>.Instance
+                ]),
+            7 => (DashboardService)constructor.Invoke(
+                [
+                    userRepository,
+                    interviewRepository,
+                    reportRepository,
+                    aiSettingsService ?? new DashboardStubAiSettingsService(),
+                    memoryCache ?? new MemoryCache(new MemoryCacheOptions()),
+                    new MemoryDistributedCache(Microsoft.Extensions.Options.Options.Create(new MemoryDistributedCacheOptions())),
                     NullLogger<DashboardService>.Instance
                 ]),
             _ => throw new NotSupportedException($"Unexpected DashboardService constructor parameter count: {parameters.Length}")

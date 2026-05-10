@@ -8,6 +8,7 @@ using AiInterview.Api.Models.Entities;
 using AiInterview.Api.Repositories.Interfaces;
 using AiInterview.Api.Services.Interfaces;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace AiInterview.Api.Services;
 
@@ -19,10 +20,12 @@ public class InterviewService(
     IAiSettingsService aiSettingsService,
     IInterviewReportGenerationQueue reportGenerationQueue,
     IHubContext<InterviewHub, IInterviewClient> hubContext,
+    IMemoryCache memoryCache,
     ILogger<InterviewService> logger) : IInterviewService
 {
     private const int DefaultMaxMessages = 30;
     private const int DefaultMaxDurationMinutes = 30;
+    private static readonly TimeSpan QuestionBankCacheDuration = TimeSpan.FromMinutes(5);
 
     public async Task<CreateInterviewResponse> CreateInterviewAsync(Guid userId, CreateInterviewRequest request, CancellationToken cancellationToken = default)
     {
@@ -34,7 +37,13 @@ public class InterviewService(
         var interviewId = Guid.NewGuid();
         var selectedQuestionTypes = request.QuestionTypes?.Length > 0 ? request.QuestionTypes : QuestionTypes.All;
         var totalRounds = request.RoundCount is > 0 ? request.RoundCount.Value : 5;
-        var questionBank = await catalogRepository.GetQuestionsByPositionAsync(position.Code, selectedQuestionTypes, cancellationToken);
+        var questionBankCacheKey = $"question_bank:{position.Code}";
+        if (!memoryCache.TryGetValue<List<QuestionBank>>(questionBankCacheKey, out var allQuestions) || allQuestions is null)
+        {
+            allQuestions = await catalogRepository.GetQuestionsByPositionAsync(position.Code, QuestionTypes.All, cancellationToken);
+            memoryCache.Set(questionBankCacheKey, allQuestions, QuestionBankCacheDuration);
+        }
+        var questionBank = allQuestions.Where(q => selectedQuestionTypes.Contains(q.Type)).ToList();
         if (questionBank.Count == 0)
         {
             throw new AppException(ErrorCodes.QuestionNotFound, "当前岗位暂无可用题目", StatusCodes.Status404NotFound);
@@ -213,7 +222,8 @@ public class InterviewService(
         await interviewRepository.AddMessageAsync(userMessage, cancellationToken);
         await interviewRepository.SaveChangesAsync(cancellationToken);
 
-        var limits = BuildLimits(interview, BuildDisplayMessages(interview).Count);
+        var displayMessages = BuildDisplayMessages(interview);
+        var limits = BuildLimits(interview, displayMessages.Count);
         if (limits.CurrentMessageCount >= limits.MaxMessages || limits.CurrentDurationMinutes >= limits.MaxDurationMinutes)
         {
             return await CompleteInterviewFromAiAsync(
@@ -231,7 +241,19 @@ public class InterviewService(
 
         await hubContext.Clients.Group(InterviewHub.BuildRoomName(interview.Id)).TypingIndicator(new { isTyping = true });
 
-        var questionBank = await catalogRepository.GetQuestionsByPositionAsync(interview.PositionCode, interview.QuestionTypes, cancellationToken);
+        var questionBankCacheKey = $"question_bank:{interview.PositionCode}";
+        if (!memoryCache.TryGetValue<List<QuestionBank>>(questionBankCacheKey, out var allQuestionsForPosition) || allQuestionsForPosition is null)
+        {
+            allQuestionsForPosition = await catalogRepository.GetQuestionsByPositionAsync(interview.PositionCode, QuestionTypes.All, cancellationToken);
+            memoryCache.Set(questionBankCacheKey, allQuestionsForPosition, QuestionBankCacheDuration);
+        }
+        var types = interview.QuestionTypes?
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray() ?? QuestionTypes.All;
+        var questionBank = allQuestionsForPosition
+            .Where(q => types.Contains(q.Type))
+            .ToList();
         var aiRequest = new AnswerAiRequest
         {
             InterviewId = interview.Id,
@@ -249,7 +271,7 @@ public class InterviewService(
                 AskedContent = currentRound.QuestionContent,
                 FollowUpCount = currentRound.FollowUpCount
             },
-            RecentMessages = BuildDisplayMessages(interview)
+            RecentMessages = displayMessages
                 .OrderBy(x => x.Sequence)
                 .TakeLast(12)
                 .Select(ToAiMessage)
@@ -613,7 +635,7 @@ public class InterviewService(
     {
         var interview = includeDetails
             ? await interviewRepository.GetByIdWithDetailsAsync(interviewId, cancellationToken)
-            : await interviewRepository.GetByIdAsync(interviewId, cancellationToken);
+            : await interviewRepository.GetByIdLightAsync(interviewId, cancellationToken);
 
         if (interview is null || interview.UserId != userId)
         {

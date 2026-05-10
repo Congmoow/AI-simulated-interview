@@ -427,7 +427,7 @@ public sealed class InterviewReportGenerationService(
     {
         s_progressChains.TryRemove(interviewId, out _);
 
-        var interview = await interviewRepository.GetByIdAsync(interviewId, cancellationToken);
+        var interview = await interviewRepository.GetByIdLightAsync(interviewId, cancellationToken);
         if (interview is not null)
         {
             interview.Status = InterviewStatuses.ReportFailed;

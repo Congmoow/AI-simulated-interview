@@ -8,6 +8,7 @@ using AiInterview.Api.Models.Entities;
 using AiInterview.Api.Options;
 using AiInterview.Api.Repositories.Interfaces;
 using AiInterview.Api.Services.Interfaces;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using System.Security.Cryptography;
 using System.Text;
@@ -20,6 +21,7 @@ public class AdminService(
     ICatalogRepository catalogRepository,
     IAiIntegrationService aiIntegrationService,
     IOptions<StorageOptions> storageOptions,
+    IMemoryCache memoryCache,
     ILogger<AdminService> logger) : IAdminService
 {
     private readonly StorageOptions _storageOptions = storageOptions.Value;
@@ -45,6 +47,7 @@ public class AdminService(
 
         await adminRepository.AddQuestionAsync(entity, cancellationToken);
         await adminRepository.SaveChangesAsync(cancellationToken);
+        InvalidateQuestionBankCache(position.Code);
         return ApplicationMapper.ToQuestionAdminDto(entity);
     }
 
@@ -75,7 +78,13 @@ public class AdminService(
 
         entity.UpdatedAt = DateTimeOffset.UtcNow;
         await adminRepository.SaveChangesAsync(cancellationToken);
+        InvalidateQuestionBankCache(entity.PositionCode);
         return ApplicationMapper.ToQuestionAdminDto(entity);
+    }
+
+    private void InvalidateQuestionBankCache(string positionCode)
+    {
+        memoryCache.Remove($"question_bank:{positionCode}");
     }
 
     public async Task<UploadKnowledgeDocumentResponse> UploadKnowledgeDocumentAsync(Guid userId, UploadKnowledgeDocumentDto request, IFormFile file, CancellationToken cancellationToken = default)

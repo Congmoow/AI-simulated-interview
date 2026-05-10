@@ -118,6 +118,21 @@ npm run dev:full
 | 报告生成（合并调用） | ~16 秒 |
 | 端到端完整面试（5 轮） | ~60 秒 |
 
+### 性能优化
+
+后端已实施多项 API 响应时间优化：
+
+| 优化项 | 说明 |
+|--------|------|
+| N+1 查询修复 | 成长趋势页面 Score 查询从 O(N) 降为 O(1) 批量查询 |
+| 并行数据库查询 | Dashboard 两次 Count 查询改为 `Task.WhenAll` 并行 |
+| 查询拆分 | 新增 `GetByIdLightAsync` 轻量查询，减少不必要的 JOIN |
+| 题库缓存 | 面试题库 `IMemoryCache` 缓存 5 分钟，管理员变更时主动失效 |
+| AI 设置缓存 | AI 配置 30 秒内存缓存，避免重复 DB 查询 |
+| 响应压缩 | 启用 gzip/brotli 响应压缩，大 JSON 传输体积减少 60-80% |
+| HttpClient 连接池 | AI 服务 HTTP 客户端配置 20 连接池 + gzip 自动解压 |
+| L1+L2 双层缓存 | Dashboard 画像数据：MemoryCache (L1, 2 分钟) + Redis (L2, 15 分钟) |
+
 ## 项目结构
 
 ```

@@ -10,6 +10,7 @@ docs/
 
 # 本地工具与缓存
 .codex/
+.claude/
 .worktrees/
 .npm-cache/
 .windsurf/
@@ -18,6 +19,11 @@ docs/
 *.log
 node_modules/
 .npmrc
+
+# 测试产物
+e2e-*.md
+e2e-*.json
+optimization-report.md
 
 # 前端依赖与构建产物
 frontend/node_modules/
