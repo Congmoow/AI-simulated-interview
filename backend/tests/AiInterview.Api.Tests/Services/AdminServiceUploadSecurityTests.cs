@@ -84,7 +84,9 @@ file sealed class StubAiIntegrationService : IAiIntegrationService
 {
     public Task<StartInterviewAiResponse> StartInterviewAsync(StartInterviewAiRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     public Task<AnswerAiResponse> AnswerAsync(AnswerAiRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public Task<AnswerAiResponse?> AnswerStreamAsync(AnswerAiRequest request, Func<string, Task> onChunk, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     public Task<ScoreAiResponse> ScoreAsync(ScoreAiRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public Task<ScoreAndReportAiResponse?> ScoreAndReportAsync(ScoreAiRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     public Task<ReportAiResponse> GenerateReportAsync(ReportAiRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     public Task<TrainingPlanAiResponse> GenerateTrainingPlanAsync(TrainingPlanAiRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     public Task<ResourceRecommendationAiResponse> RecommendResourcesAsync(ResourceRecommendationAiRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();

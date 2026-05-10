@@ -312,6 +312,10 @@ file sealed class StubAiIntegrationService : IAiIntegrationService
 
     public Task<AnswerAiResponse> AnswerAsync(AnswerAiRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
+    public Task<AnswerAiResponse?> AnswerStreamAsync(AnswerAiRequest request, Func<string, Task> onChunk, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+    public Task<ScoreAndReportAiResponse?> ScoreAndReportAsync(ScoreAiRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
     public Task<ScoreAiResponse> ScoreAsync(ScoreAiRequest request, CancellationToken cancellationToken = default)
     {
         ScoreCallCount += 1;
@@ -443,6 +447,8 @@ file sealed class CapturingInterviewClient : IInterviewClient
         ErrorPayloads.Add(payload);
         return Task.CompletedTask;
     }
+
+    public Task ReceiveContentChunk(object payload) => Task.CompletedTask;
 }
 
 file sealed class StubHubClients : IHubClients<IInterviewClient>
@@ -977,6 +983,10 @@ file sealed class FailingAiIntegrationService : IAiIntegrationService
     public Task<StartInterviewAiResponse> StartInterviewAsync(StartInterviewAiRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
     public Task<AnswerAiResponse> AnswerAsync(AnswerAiRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+    public Task<AnswerAiResponse?> AnswerStreamAsync(AnswerAiRequest request, Func<string, Task> onChunk, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+    public Task<ScoreAndReportAiResponse?> ScoreAndReportAsync(ScoreAiRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
     public Task<ScoreAiResponse> ScoreAsync(ScoreAiRequest request, CancellationToken cancellationToken = default)
     {

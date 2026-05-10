@@ -468,7 +468,14 @@ sealed class ChatFlowAiIntegrationService : IAiIntegrationService
         return Task.FromResult(AnswerResponse);
     }
 
+    public Task<AnswerAiResponse?> AnswerStreamAsync(AnswerAiRequest request, Func<string, Task> onChunk, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<AnswerAiResponse?>(AnswerResponse);
+    }
+
     public Task<ScoreAiResponse> ScoreAsync(ScoreAiRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+    public Task<ScoreAndReportAiResponse?> ScoreAndReportAsync(ScoreAiRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
     public Task<ReportAiResponse> GenerateReportAsync(ReportAiRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
@@ -545,6 +552,8 @@ sealed class ChatFlowInterviewClient : IInterviewClient
     public Task VoiceTranscription(object payload) => Task.CompletedTask;
 
     public Task ErrorOccurred(object payload) => Task.CompletedTask;
+
+    public Task ReceiveContentChunk(object payload) => Task.CompletedTask;
 }
 
 sealed class ChatFlowHubClients : IHubClients<IInterviewClient>

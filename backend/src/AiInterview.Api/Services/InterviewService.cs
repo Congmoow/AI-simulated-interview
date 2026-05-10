@@ -260,7 +260,6 @@ public class InterviewService(
 
         // 尝试流式调用，逐块推送内容到前端
         var roomName = InterviewHub.BuildRoomName(interview.Id);
-        var streamingFailed = false;
         var aiResponse = await aiIntegrationService.AnswerStreamAsync(
             aiRequest,
             async (chunkText) =>
@@ -274,7 +273,7 @@ public class InterviewService(
                         isFinal = false
                     });
                 }
-                catch { streamingFailed = true; }
+                catch { /* ignore streaming push errors */ }
             },
             cancellationToken);
 
