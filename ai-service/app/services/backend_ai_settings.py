@@ -27,6 +27,7 @@ class RuntimeAiSettings(BaseModel):
 _cache_lock = threading.Lock()
 _runtime_ai_settings_cache: tuple[float, RuntimeAiSettings | None] | None = None
 _backend_client = httpx.Client(timeout=10.0, http2=False)
+_async_backend_client: httpx.AsyncClient | None = None
 
 
 def clear_runtime_ai_settings_cache() -> None:
@@ -105,6 +106,55 @@ def fetch_runtime_ai_settings(force_refresh: bool = False) -> RuntimeAiSettings 
             logger.info("cache_miss")
 
     runtime_settings = _fetch_runtime_ai_settings_uncached()
+    with _cache_lock:
+        _runtime_ai_settings_cache = (now + RUNTIME_AI_SETTINGS_TTL_SECONDS, runtime_settings)
+    return runtime_settings
+
+
+def _get_async_backend_client() -> httpx.AsyncClient:
+    global _async_backend_client
+    if _async_backend_client is None:
+        _async_backend_client = httpx.AsyncClient(timeout=10.0, http2=True)
+    return _async_backend_client
+
+
+async def async_fetch_runtime_ai_settings_uncached() -> RuntimeAiSettings | None:
+    settings = get_settings()
+    headers: dict[str, str] = {}
+    if settings.api_key:
+        headers["Authorization"] = f"Bearer {settings.api_key}"
+
+    url = f"{settings.backend_url.rstrip('/')}/api/v1/internal/ai/runtime-settings"
+    client = _get_async_backend_client()
+    try:
+        response = await client.get(url, headers=headers)
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:
+        logger.exception("async_cache_refresh_failed backend_url=%s exception_type=%s", settings.backend_url, exc.__class__.__name__)
+        raise
+
+    data = payload.get("data")
+    if not data:
+        logger.warning("async_runtime_settings_empty backend_url=%s", settings.backend_url)
+        return None
+
+    runtime_settings = RuntimeAiSettings.model_validate(data)
+    logger.info("async_runtime_settings_refreshed provider=%s base_url=%s model=%s", runtime_settings.provider, runtime_settings.base_url, runtime_settings.model)
+    return runtime_settings
+
+
+async def async_fetch_runtime_ai_settings(force_refresh: bool = False) -> RuntimeAiSettings | None:
+    global _runtime_ai_settings_cache
+
+    now = time.monotonic()
+    with _cache_lock:
+        if not force_refresh and _runtime_ai_settings_cache is not None:
+            expires_at, cached_value = _runtime_ai_settings_cache
+            if now < expires_at:
+                return cached_value
+
+    runtime_settings = await async_fetch_runtime_ai_settings_uncached()
     with _cache_lock:
         _runtime_ai_settings_cache = (now + RUNTIME_AI_SETTINGS_TTL_SECONDS, runtime_settings)
     return runtime_settings

@@ -167,6 +167,7 @@ export function InterviewClient() {
   const [connectionNotices, setConnectionNotices] = useState<SystemTimelineMessage[]>([]);
   const [pendingAnswer, setPendingAnswer] = useState<LocalPendingAnswer | null>(null);
   const [assistantThinking, setAssistantThinking] = useState(false);
+  const [streamingText, setStreamingText] = useState<string | null>(null);
   const [reportReady, setReportReady] = useState(false);
   const [storedDraft, setStoredDraft] = useState<string | null>(null);
   const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
@@ -488,6 +489,7 @@ export function InterviewClient() {
         return;
       }
       setAssistantThinking(false);
+      setStreamingText(null);
       const capturedPending = pendingAnswerRef.current;
       setDetail((prev) => {
         if (!prev) return prev;
@@ -536,6 +538,7 @@ export function InterviewClient() {
         return;
       }
       setAssistantThinking(false);
+      setStreamingText(null);
       const capturedPending = pendingAnswerRef.current;
       setDetail((prev) => {
         if (!prev) return prev;
@@ -633,6 +636,17 @@ export function InterviewClient() {
           ? current
           : { ...current, status: "evaluating" },
       );
+    });
+    connection.on("ReceiveContentChunk", (payload?: unknown) => {
+      if (!active || !payload || typeof payload !== "object") return;
+      const { text, isFinal } = payload as { text?: string; isFinal?: boolean };
+      if (isFinal) {
+        setStreamingText(null);
+        return;
+      }
+      if (typeof text === "string" && text.length > 0) {
+        setStreamingText((prev) => (prev ?? "") + text);
+      }
     });
     connection.on("ReportProgress", (payload?: unknown) => {
       if (
@@ -742,6 +756,7 @@ export function InterviewClient() {
         pendingAnswer,
         pendingAnswerAlreadyPersisted,
         assistantThinking,
+        streamingText,
       }),
     );
 
@@ -799,6 +814,7 @@ export function InterviewClient() {
     pendingAnswerAlreadyPersisted,
     reportProgress,
     assistantThinking,
+    streamingText,
   ]);
   const messages = useMemo(() => [...baseMessages, ...tailMessages], [baseMessages, tailMessages]);
   const elapsedLabel = useMemo(

@@ -4,6 +4,7 @@ from app.schemas.document import ProcessDocumentRequest, ProcessDocumentResponse
 from app.schemas.interview import (
     AnswerInterviewRequest,
     AnswerInterviewResponse,
+    ScoreAndReportResponse,
     ScoreInterviewRequest,
     ScoreInterviewResponse,
     StartInterviewRequest,
@@ -26,10 +27,17 @@ class ModelProvider(Protocol):
     async def answer_interview(self, request: AnswerInterviewRequest) -> AnswerInterviewResponse:
         ...
 
+    async def answer_interview_streaming(self, request: AnswerInterviewRequest):
+        """流式版本。yield chunk/done/error 字典。"""
+        ...
+
     async def score_interview(self, request: ScoreInterviewRequest) -> ScoreInterviewResponse:
         ...
 
     async def generate_report(self, request: GenerateReportRequest) -> GenerateReportResponse:
+        ...
+
+    async def score_and_report_interview(self, request: ScoreInterviewRequest) -> ScoreAndReportResponse:
         ...
 
     async def recommend_resources(self, request: ResourceRecommendationRequest) -> ResourceRecommendationResponse:

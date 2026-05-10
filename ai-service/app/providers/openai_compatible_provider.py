@@ -15,6 +15,7 @@ from app.schemas.interview import (
     AnswerInterviewRequest,
     AnswerInterviewResponse,
     DimensionScore,
+    ScoreAndReportResponse,
     ScoreInterviewRequest,
     ScoreInterviewResponse,
     StartInterviewRequest,
@@ -107,7 +108,7 @@ def get_shared_http_client(base_url: str, api_key: str) -> httpx.AsyncClient:
             client = httpx.AsyncClient(
                 base_url=f"{base_url.rstrip('/')}/",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                http2=False,
+                http2=True,
             )
             _shared_clients[key] = client
         return client
@@ -170,6 +171,79 @@ class OpenAICompatibleProvider(ModelProvider):
         )
         return self._parse_answer_payload(request, payload)
 
+    async def answer_interview_streaming(self, request: AnswerInterviewRequest):
+        """流式版本的 answer_interview。yield content 文本片段，最后 yield 完整的 AnswerInterviewResponse。"""
+        prompt = self._build_compact_answer_prompt(request)
+        accumulated_json = ""
+        try:
+            async for chunk_text in self._chat_text_streaming(
+                step="answer_interview",
+                system_prompt=(
+                    "你是中文技术面试官。只返回一个JSON对象。\n"
+                    "字段：action(\"question\"|\"follow_up\"|\"finish\"), messageType(\"opening\"|\"question\"|\"follow_up\"|\"closing\"|\"technical_follow_up\"), "
+                    "content(面试回复文本), selectedQuestionId(UUID或null), suggestions(字符串数组), metadata(对象)。\n"
+                    "主问题只能从题库选择，不要自编。"
+                ),
+                user_prompt=prompt,
+                temperature=max(self.settings.temperature, 0.3),
+                max_tokens=220,
+                timeout_seconds=60.0,
+            ):
+                accumulated_json += chunk_text
+                # 尝试从累积的 JSON 中提取 content 字段的值
+                extracted = self._extract_content_from_partial_json(accumulated_json)
+                if extracted:
+                    yield {"type": "chunk", "text": extracted}
+        except Exception as exc:
+            yield {"type": "error", "message": str(exc)}
+            return
+
+        # 解析完整 JSON
+        try:
+            payload = json.loads(self._extract_json_object(accumulated_json))
+            result = self._parse_answer_payload(request, payload)
+            yield {"type": "done", "response": result}
+        except Exception as exc:
+            yield {"type": "error", "message": f"Failed to parse response: {exc}"}
+
+    @staticmethod
+    def _extract_content_from_partial_json(text: str) -> str | None:
+        """从部分 JSON 中提取 content 字段的值（用于流式显示）。"""
+        # 查找 "content": " 模式
+        marker = '"content"'
+        idx = text.rfind(marker)
+        if idx < 0:
+            return None
+        after = text[idx + len(marker):].lstrip()
+        if not after.startswith(":"):
+            return None
+        after = after[1:].lstrip()
+        if not after.startswith('"'):
+            return None
+        # 提取引号内的内容（处理转义）
+        value_start = 1
+        i = value_start
+        result = []
+        while i < len(after):
+            ch = after[i]
+            if ch == '\\' and i + 1 < len(after):
+                next_ch = after[i + 1]
+                if next_ch == '"':
+                    result.append('"')
+                elif next_ch == '\\':
+                    result.append('\\')
+                elif next_ch == 'n':
+                    result.append('\n')
+                else:
+                    result.append(next_ch)
+                i += 2
+            elif ch == '"':
+                break
+            else:
+                result.append(ch)
+                i += 1
+        return "".join(result) if result else None
+
     async def score_interview(self, request: ScoreInterviewRequest) -> ScoreInterviewResponse:
         rounds_text = self._build_score_rounds_text(request.rounds)
         try:
@@ -191,7 +265,7 @@ class OpenAICompatibleProvider(ModelProvider):
                 ),
                 temperature=0.2,
                 max_tokens=min(max(self.settings.max_tokens, 512), 900),
-                timeout_seconds=45.0,
+                timeout_seconds=120.0,
             )
             overall_score = self._as_number(payload.get("overallScore"))
             rank_percentile = self._as_number(payload.get("rankPercentile"))
@@ -256,6 +330,80 @@ class OpenAICompatibleProvider(ModelProvider):
         except Exception as exc:
             response_payload_snippet = self._sanitize_text(json.dumps(payload, ensure_ascii=False, default=str)[:320]) if "payload" in locals() else ""
             self._log_step_failure("generate_report", exc, timeout_seconds=60.0, input_summary_length=len(rounds_text), response_body_snippet=response_payload_snippet)
+            raise
+
+    async def score_and_report_interview(self, request: ScoreInterviewRequest) -> ScoreAndReportResponse:
+        rounds_text = self._build_score_rounds_text(request.rounds)
+        try:
+            payload = await self._chat_json(
+                step="score_and_report",
+                system_prompt=(
+                    "你是中文技术面试评估师和报告撰写者。只返回一个JSON对象，不要输出任何其他内容。\n"
+                    "JSON必须包含以下字段：\n"
+                    "overallScore: 0-100的数字\n"
+                    "rankPercentile: 0-100的数字\n"
+                    "dimensionScores: 对象，包含8个维度(technicalAccuracy, knowledgeDepth, logicalThinking, positionMatch, projectAuthenticity, fluency, clarity, confidence)，每个维度有score(0-100)和weight(0-1)\n"
+                    "dimensionDetails: 对象，每个维度的详细评价文字\n"
+                    "scoreBreakdown: 对象\n"
+                    "executiveSummary: 总结文字\n"
+                    "strengths: 字符串数组\n"
+                    "weaknesses: 字符串数组\n"
+                    "detailedAnalysis: 对象\n"
+                    "learningSuggestions: 字符串数组\n"
+                    "trainingPlan: 数组\n"
+                    "nextInterviewFocus: 字符串数组"
+                ),
+                user_prompt=(
+                    f"岗位：{request.position_code}\n"
+                    f"面试记录：\n{rounds_text}\n"
+                    "请评估并返回完整JSON。"
+                ),
+                temperature=0.2,
+                max_tokens=min(max(self.settings.max_tokens, 900), 1800),
+                timeout_seconds=120.0,
+            )
+            overall_score = self._as_number(payload.get("overallScore"))
+            rank_percentile = self._as_number(payload.get("rankPercentile"))
+            if overall_score is None or rank_percentile is None:
+                raise ValueError("invalid score payload")
+
+            parsed_dimension_scores = payload.get("dimensionScores")
+            parsed_dimensions = payload.get("dimensions")
+            score_sources = [s for s in (parsed_dimension_scores, parsed_dimensions) if isinstance(s, dict)]
+            if not score_sources:
+                raise ValueError("invalid score payload")
+            raw_detail_map = self._merge_detail_maps(
+                self._normalize_detail_map(payload.get("dimensionDetails")),
+                self._extract_dimension_details(parsed_dimension_scores),
+                self._extract_dimension_details(parsed_dimensions),
+            )
+            dimension_scores = self._normalize_standard_dimension_scores(score_sources, overall_score)
+            dimension_details = self._normalize_standard_dimension_details(score_sources, raw_detail_map)
+            score_breakdown = payload.get("scoreBreakdown")
+            if not isinstance(score_breakdown, dict):
+                score_breakdown = {}
+            executive_summary = self._normalize_executive_summary(payload)
+            if not executive_summary:
+                executive_summary = f"综合得分 {overall_score:.1f} 分"
+
+            return ScoreAndReportResponse(
+                overallScore=max(0, min(overall_score, 100)),
+                rankPercentile=max(0, min(rank_percentile, 100)),
+                dimensionScores=dimension_scores,
+                dimensionDetails=dimension_details,
+                scoreBreakdown=score_breakdown,
+                executiveSummary=executive_summary,
+                strengths=self._normalize_string_list(payload.get("strengths")),
+                weaknesses=self._normalize_string_list(payload.get("weaknesses")),
+                detailedAnalysis=self._normalize_detailed_analysis(payload.get("detailedAnalysis")),
+                learningSuggestions=self._normalize_string_list(payload.get("learningSuggestions") or payload.get("suggestions")),
+                trainingPlan=self._normalize_training_plan(payload.get("trainingPlan")),
+                nextInterviewFocus=self._normalize_string_list(payload.get("nextInterviewFocus")),
+                modelVersion=self.model_version,
+            )
+        except Exception as exc:
+            response_payload_snippet = self._sanitize_text(json.dumps(payload, ensure_ascii=False, default=str)[:320]) if "payload" in locals() else ""
+            self._log_step_failure("score_and_report", exc, round_count=len(request.rounds), input_summary_length=len(rounds_text), timeout_seconds=120.0, response_body_snippet=response_payload_snippet)
             raise
 
     async def recommend_resources(self, request: ResourceRecommendationRequest) -> ResourceRecommendationResponse:
@@ -337,6 +485,45 @@ class OpenAICompatibleProvider(ModelProvider):
         if not text:
             raise ValueError(f"{step} returned empty content")
         return text
+
+    async def _chat_text_streaming(self, *, step: str, system_prompt: str, user_prompt: str, temperature: float, max_tokens: int, timeout_seconds: float = 60.0):
+        """流式调用 LLM，yield 每个内容片段。"""
+        client = self._get_http_client()
+        accumulated = ""
+        try:
+            async with client.stream(
+                "POST",
+                "chat/completions",
+                json={
+                    "model": self.settings.model,
+                    "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "stream": True,
+                },
+                timeout=timeout_seconds,
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data_str = line[6:].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        text = delta.get("content", "")
+                        if text:
+                            accumulated += text
+                            yield text
+                    except json.JSONDecodeError:
+                        continue
+        except Exception as exc:
+            logger.warning("streaming_%s failed: %s", step, exc)
+            raise
+        if not accumulated:
+            raise ValueError(f"{step} streaming returned empty content")
 
     async def _chat_json(self, *, step: str, system_prompt: str, user_prompt: str, temperature: float, max_tokens: int, timeout_seconds: float = 30.0) -> dict[str, Any]:
         content = await self._chat_text(step=step, system_prompt=system_prompt, user_prompt=user_prompt, temperature=temperature, max_tokens=max_tokens, timeout_seconds=timeout_seconds)

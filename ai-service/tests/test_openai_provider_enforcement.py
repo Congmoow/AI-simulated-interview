@@ -287,7 +287,7 @@ def test_score_and_report_should_use_new_timeouts_and_skip_finish_step(monkeypat
     assert calls == [
         ("start_interview", 25.0, 220),
         ("answer_interview", 60.0, 220),
-        ("score_interview", 45.0, 512),
+        ("score_interview", 120.0, 512),
         ("generate_report", 60.0, 600),
     ]
 

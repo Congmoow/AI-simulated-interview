@@ -22,6 +22,7 @@ type InterviewAssistantMessage = {
   tag?: string;
   isCurrent?: boolean;
   isThinking?: boolean;
+  isStreaming?: boolean;
 };
 
 type InterviewUserMessage = {
@@ -71,6 +72,7 @@ export function InterviewMessageItem({
 
   if (message.kind === "assistant") {
     const isThinking = message.isThinking === true;
+    const isStreaming = "isStreaming" in message && message.isStreaming === true;
 
     return (
       <div className="flex justify-start">
@@ -99,7 +101,12 @@ export function InterviewMessageItem({
                     : "bg-[rgba(255,255,255,0.92)]",
               )}
             >
-              {isThinking ? (
+              {isThinking && isStreaming ? (
+                <p className="whitespace-pre-wrap text-[15px] leading-7 text-[var(--token-color-text-primary)]">
+                  {message.body}
+                  <span className="inline-block w-[2px] h-[15px] bg-[var(--token-color-text-primary)] ml-[1px] animate-pulse align-text-bottom" />
+                </p>
+              ) : isThinking ? (
                 <div
                   aria-live="polite"
                   className="flex items-center gap-3 text-[15px] leading-7 text-[var(--token-color-text-primary)]"

@@ -1,4 +1,3 @@
-import { Suspense } from "react";
 import type { Metadata } from "next";
 import "./globals.css";
 import { AppShell } from "@/components/layout/app-shell";
@@ -18,9 +17,7 @@ export default function RootLayout({
     <html lang="zh-CN">
       <body className="shell-background">
         <AppShell>{children}</AppShell>
-        <Suspense fallback={null}>
-          <GlobalModals />
-        </Suspense>
+        <GlobalModals />
       </body>
     </html>
   );

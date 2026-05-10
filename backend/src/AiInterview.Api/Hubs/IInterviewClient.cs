@@ -19,4 +19,6 @@ public interface IInterviewClient
     Task VoiceTranscription(object payload);
 
     Task ErrorOccurred(object payload);
+
+    Task ReceiveContentChunk(object payload);
 }

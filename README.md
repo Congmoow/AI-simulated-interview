@@ -1,327 +1,269 @@
-# AI 模拟面试与能力提升系统
+# APTAI - AI 模拟面试与能力提升系统
 
-面向计算机相关专业学生的多服务面试训练平台。项目采用前后端分离架构，围绕“练习 -> 追问 -> 评分 -> 报告 -> 提升建议”这条主链路，提供岗位化模拟面试、报告生成、资源推荐和知识库处理能力。
+面向计算机相关专业学生的多服务 AI 模拟面试平台，围绕 **练习 → 追问 → 评分 → 报告 → 提升建议** 的核心链路，提供岗位化模拟面试、多维评分报告和个性化学习推荐。
 
-当前仓库以可本地运行、可继续开发为目标，包含 `frontend`、`backend`、`ai-service` 三个核心服务，以及 Docker Compose、Windows 一键脚本和根目录联动启动入口。
+## 技术栈
 
-## 当前已落地的主要能力
+| 服务 | 技术 | 端口 |
+|------|------|------|
+| Frontend | Next.js 16 + React 19 + TypeScript + Tailwind CSS 4 | 3000 |
+| Backend | ASP.NET Core 8 + EF Core + SignalR | 8080 |
+| AI Service | FastAPI + Pydantic + Celery | 8000 |
+| Database | PostgreSQL 15 + pgvector | 5433 |
+| Cache/Queue | Redis 7 | 6379 |
 
-- 用户注册、登录、JWT 刷新、个人资料更新
-- 岗位列表与题库查询
-- 模拟面试创建、回答提交、结束面试、历史记录查询
-- 面试报告、成长趋势、资源推荐、训练计划查询
-- SignalR 实时面试通道
-- 管理端题库、知识库文档、AI 设置相关接口
-- FastAPI AI 服务的面试、评分、报告、推荐、RAG、文档处理接口
+## 快速开始
 
-说明：
-
-- `docs-shared/` 是仓库内共享文档根目录，当前入口为 `docs-shared/README.md`
-- `Docs/` 保留为本地专用目录，不纳入 Git，也不是仓库内共享文档入口
-- README 优先描述当前仓库的实际启动方式、目录结构和可落地开发路径
-
-## 技术栈与服务
-
-| 服务 | 技术栈 | 作用 | 默认访问地址 |
-| --- | --- | --- | --- |
-| `frontend` | Next.js 16 + React 19 + TypeScript + Tailwind CSS 4 | 登录、控制台、面试、报告、历史、资源、管理页面 | 本地开发默认 `http://localhost:3000`；Docker 默认 `http://localhost:3001` |
-| `backend` | ASP.NET Core 8 + EF Core + SignalR + PostgreSQL + Redis | 业务主入口、认证、面试流程、报告、推荐、知识库、实时推送 | `http://localhost:8080` |
-| `ai-service` | FastAPI + Pydantic + Celery + Redis | 面试问答、评分、报告、推荐、RAG、文档处理 | `http://localhost:8000` |
-| `postgres` | pgvector/pg15 | 主数据库，承载结构化数据与向量能力 | `localhost:5433` |
-| `redis` | Redis 7 | 缓存、会话、队列相关能力 | `localhost:6379` |
-
-## 仓库结构
-
-```text
-.
-├── docs-shared/                  # Git 内共享文档根目录（当前入口见 docs-shared/README.md）
-├── Docs/                         # 本地专用文档目录，不纳入 Git
-├── frontend/                     # Next.js 前端
-├── backend/                      # ASP.NET Core Web API
-├── ai-service/                   # FastAPI AI 服务
-├── scripts/                      # 根目录启动辅助脚本
-├── storage/                      # PostgreSQL、Redis、上传文件、密钥等本地数据
-├── docker-compose.yml            # 多服务容器编排
-├── .env.example                  # 运行环境变量模板
-├── start.ps1                     # Windows 一键启动脚本
-└── stop.ps1                      # Windows 一键停止脚本
-```
-
-更细的代码入口：
-
-- 前端页面：`frontend/src/app`
-- 后端接口：`backend/src/AiInterview.Api/Controllers`
-- AI 服务路由：`ai-service/app/api/routes`
-
-## 环境要求
+### 前置条件
 
 - Node.js 18+
-- npm
-- .NET SDK 8
+- .NET 8 SDK
+- Python 3.12+ / uv
 - Docker Desktop
-- Python 3.12+
-- `uv`
-- Windows PowerShell 5.1 或 PowerShell 7+（如果要使用 `start.ps1` / `stop.ps1`）
 
-## 先准备环境变量
+### 1. 配置环境变量
 
-建议先复制运行配置文件：
-
-```powershell
-Copy-Item .env.example .env.run
+```bash
+cp .env.example .env.run
 ```
 
-`.env.run` 是 Docker Compose 与部分本地开发流程的统一配置来源。默认值包括：
+编辑 `.env.run`，填写必要的密码和 API Key：
 
-- 前端端口：`3001`
-- 后端端口：`8080`
-- AI 服务端口：`8000`
-- PostgreSQL：`localhost:5433`
-- Redis：`localhost:6379`
-- 数据库：`ai_interview`
-- 默认种子数据：`SEED_ENABLED=true`
+```env
+# 数据库
+POSTGRES_PASSWORD=your_password
 
-安全相关必填项（首次使用前必须配置）：
+# Redis
+REDIS_PASSWORD=your_redis_password
 
-- `POSTGRES_PASSWORD`：PostgreSQL 密码
-- `REDIS_PASSWORD`：Redis 密码（Docker Compose 中 Redis 启用 `--requirepass`）
-- `JWT_SECRET_KEY`：JWT 签名密钥（建议 32 字符以上）
-- `AI_SERVICE_API_KEY`：后端与 AI 服务之间的内部鉴权密钥（两端必须一致）
+# AI 服务内部认证（后端 ↔ AI 服务共享）
+AI_SERVICE_API_KEY=your_api_key
 
-## 启动方式总览
-
-| 场景 | 推荐命令 | 说明 |
-| --- | --- | --- |
-| 想最快体验整套服务 | `pwsh -NoProfile -ExecutionPolicy Bypass -File .\start.ps1 -Full` | Windows 下最省事，脚本会在后台拉起服务并写日志 |
-| 想用容器跑完整环境 | `docker compose --env-file .env.run up --build -d` | 同时启动前端、后端、AI 服务、PostgreSQL、Redis、Celery Worker |
-| 想本地联调前后端 | `npm run dev` | 自动确保 PostgreSQL 和 Redis 可用，然后启动前端与后端 |
-| 想本地联调前后端 + AI 服务 | `npm run dev:full` | 在 `dev` 基础上额外启动 `ai-service` |
-
-## 方式一：Docker Compose
-
-启动：
-
-```powershell
-docker compose --env-file .env.run up --build -d
+# .NET 配置映射
+AiService__ApiKey=your_api_key
+AiService__BaseUrl=http://localhost:8000
+Seed__UserPassword=your_user_password
+Seed__AdminPassword=your_admin_password
 ```
 
-查看状态：
+### 2. 启动基础设施
 
-```powershell
-docker compose --env-file .env.run ps
+```bash
+docker compose --env-file .env.run up -d postgres redis
 ```
 
-停止：
+### 3. 启动所有服务
 
-```powershell
-docker compose --env-file .env.run down
-```
-
-默认访问地址：
-
-- 前端：`http://localhost:3001`
-- 后端：`http://localhost:8080`
-- 后端 Swagger：`http://localhost:8080/swagger`
-- 后端健康检查：`http://localhost:8080/health`
-- AI 服务健康检查：`http://localhost:8000/health`
-
-适合场景：
-
-- 需要完整还原多服务协同环境
-- 需要容器化数据库和 Redis
-- 需要连同 `celery-worker` 一起验证编排
-
-## 方式二：Windows 一键脚本
-
-普通开发：
-
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\start.ps1
-```
-
-完整演示：
-
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\start.ps1 -Full
-```
-
-停止服务：
-
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\stop.ps1
-```
-
-常用补充参数：
-
-- 保留日志：`.\stop.ps1 -KeepLogs`
-- PID 文件丢失时按端口清理：`.\stop.ps1 -CleanByPort`
-
-脚本特点：
-
-- 自动做依赖预检
-- 自动确保 PostgreSQL / Redis 可用
-- 启动成功后返还当前终端控制权
-- 日志写入根目录 `.dev-logs/`
-- 优先使用前端 `3000`，若被占用会回退到 `3001`
-
-适合场景：
-
-- Windows 本机演示
-- 希望后台启动服务，同时保留当前终端继续操作
-
-## 方式三：根目录本地联动开发
-
-先安装根目录依赖：
-
-```powershell
+```bash
 npm install
-```
-
-说明：
-
-- 根目录 `postinstall` 会自动补齐 `frontend` 依赖
-- 后端由 `dotnet run` 直接启动
-- AI 服务由 `uv run` 启动，首次执行可能会花一点时间准备环境
-
-启动前后端：
-
-```powershell
-npm run dev
-```
-
-启动前后端 + AI 服务：
-
-```powershell
 npm run dev:full
 ```
 
-单独启动单个服务：
+服务地址：
+- 前端：http://localhost:3000
+- 后端 API：http://localhost:8080
+- AI 服务：http://localhost:8000
+- Swagger 文档：http://localhost:8080/swagger
 
-```powershell
+### 4. 配置 LLM
+
+启动后访问管理后台 http://localhost:3000/admin/ai-settings，配置 LLM Provider。
+
+支持所有 OpenAI 兼容接口，推荐：
+- **阿里云百炼 Qwen**：`https://dashscope.aliyuncs.com/compatible-mode/v1`
+- **DeepSeek**：`https://api.deepseek.com/v1`
+- **OpenAI**：`https://api.openai.com/v1`
+
+## 系统架构
+
+```
+┌─────────────┐     REST API      ┌──────────────────┐     HTTP      ┌──────────────────┐
+│   Frontend   │ ──────────────── │     Backend       │ ──────────── │    AI Service     │
+│  Next.js 16  │ ←── SignalR ──── │  ASP.NET Core 8   │ ←────────── │     FastAPI       │
+│  :3000       │    WebSocket     │  :8080             │              │  :8000            │
+└─────────────┘                   └──────────────────┘              └──────────────────┘
+                                       │          │                       │
+                                  ┌────▼───┐  ┌───▼───┐            ┌─────▼─────┐
+                                  │Postgres│  │ Redis │            │ LLM API   │
+                                  │  :5433 │  │ :6379 │            │ (Qwen等)  │
+                                  └────────┘  └───────┘            └───────────┘
+```
+
+### 核心流程
+
+1. **登录**：JWT 认证，支持注册/登录
+2. **选择岗位**：Java 后端 / Web 前端，支持轻松/标准/高压三种模式
+3. **面试问答**：AI 动态生成问题和追问，支持流式响应
+4. **评分报告**：AI 多维评分 + 结构化报告生成（合并调用，约 16 秒）
+5. **能力画像**：历史面试数据分析，雷达图展示能力维度
+
+### 流式响应
+
+问答环节支持流式响应（Streaming），用户提交答案后 1-3 秒内即可看到 AI 回复逐步显示：
+
+```
+用户提交答案 → 后端调用 AI 服务 → AI 服务流式调用 LLM
+                                     ↓
+                              SignalR 推送 content chunks
+                                     ↓
+                              前端逐步显示 AI 回复 + 光标动画
+```
+
+### 性能指标
+
+| 指标 | 耗时 |
+|------|------|
+| 问答响应（首字节） | 1-3 秒 |
+| 问答响应（完整） | 6-10 秒 |
+| 报告生成（合并调用） | ~16 秒 |
+| 端到端完整面试（5 轮） | ~60 秒 |
+
+## 项目结构
+
+```
+├── frontend/                    # Next.js 前端
+│   └── src/
+│       ├── app/                 # App Router 页面
+│       ├── components/          # 通用组件
+│       ├── features/            # 功能模块
+│       ├── services/            # API 服务层
+│       ├── stores/              # Zustand 状态管理
+│       └── types/               # TypeScript 类型
+│
+├── backend/                     # ASP.NET Core 后端
+│   └── src/AiInterview.Api/
+│       ├── Controllers/         # API 控制器
+│       ├── Services/            # 业务服务层
+│       ├── Models/              # 实体模型
+│       ├── DTOs/                # 数据传输对象
+│       ├── Hubs/                # SignalR Hub
+│       └── Repositories/        # 数据访问层
+│
+├── ai-service/                  # FastAPI AI 服务
+│   └── app/
+│       ├── api/routes/          # API 路由
+│       ├── providers/           # LLM Provider（含 Mock）
+│       ├── services/            # 业务服务
+│       ├── schemas/             # Pydantic 数据模型
+│       └── workers/             # Celery 异步任务
+│
+├── docker-compose.yml           # 容器编排
+├── .env.example                 # 环境变量模板
+└── package.json                 # 根目录脚本编排
+```
+
+## 常用命令
+
+```bash
+# 启动所有服务（前端 + 后端 + AI 服务）
+npm run dev:full
+
+# 仅启动前端 + 后端
+npm run dev
+
+# 单独启动
 npm run dev:frontend
 npm run dev:backend
 npm run dev:ai-service
+
+# 测试
+npm run test
+npm run test:backend
+npm run test:ai
+
+# 代码检查
+npm run lint
+
+# 构建
+npm run build
 ```
 
-本地联调默认地址：
+## API 接口
 
-- 前端：`http://localhost:3000`
-- 后端：`http://localhost:8080`
-- AI 服务：`http://localhost:8000`
+### 认证
 
-补充说明：
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v1/auth/login` | 登录 |
+| POST | `/api/v1/auth/register` | 注册 |
 
-- `npm run dev` / `npm run dev:full` 在启动应用前，会先执行 `scripts/predev.mjs`
-- 该流程会尝试确保 Docker 中的 PostgreSQL 和 Redis 已启动
-- 任一子进程退出时，其余联动子进程也会一起结束，减少残留进程
+### 面试
 
-## 配置与数据说明
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/positions` | 获取岗位列表 |
+| POST | `/api/v1/interviews` | 创建面试 |
+| POST | `/api/v1/interviews/{id}/answers` | 提交回答 |
+| POST | `/api/v1/interviews/{id}/finish` | 结束面试 |
+| GET | `/api/v1/interviews/{id}` | 获取面试详情 |
 
-### 数据库与缓存默认值
+### 报告
 
-后端本地开发默认连接：
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/reports/{interviewId}` | 获取报告 |
+| GET | `/api/v1/reports/growth` | 成长趋势 |
+| GET | `/api/v1/dashboard/insights` | 仪表盘数据 |
 
-- PostgreSQL：`Host=localhost;Port=5433;Database=ai_interview;Username=postgres;Password=<见 .env.run>`
-- Redis：`localhost:6379,abortConnect=false`
+### 管理
 
-后端启动时会自动执行数据库迁移；当 `SEED_ENABLED=true` 时，会自动写入种子数据。
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/admin/ai-settings` | AI 配置 |
+| PUT | `/api/v1/admin/ai-settings` | 更新 AI 配置 |
+| POST | `/api/v1/admin/ai-settings/test` | 测试连接 |
 
-### AI 服务默认配置
+## 默认账号
 
-`.env.example` 当前默认使用：
+种子数据自动创建（密码在 `.env.run` 中配置）：
+- 普通用户：`zhangsan`
+- 管理员：`admin`
 
-```env
-AI_SERVICE_MODEL_PROVIDER=mock
-```
+## 环境变量说明
 
-这意味着仓库默认以本地可运行、可演示为优先，AI 服务默认走 `mock provider`。如果要接入真实模型，需要同步调整对应的 AI 服务与后端配置，而不是只修改单个环境变量。
+| 变量 | 说明 | 示例 |
+|------|------|------|
+| `POSTGRES_PASSWORD` | PostgreSQL 密码 | `devpostgres` |
+| `REDIS_PASSWORD` | Redis 密码 | `devredis` |
+| `JWT_SECRET_KEY` | JWT 签名密钥（32+ 字符） | `your-secret-key...` |
+| `AI_SERVICE_API_KEY` | 后端↔AI 服务内部认证 | `your-api-key` |
+| `AiService__ApiKey` | .NET 映射（同上） | `your-api-key` |
+| `AiService__BaseUrl` | AI 服务地址 | `http://localhost:8000` |
+| `Seed__UserPassword` | 种子用户密码 | `dev123456` |
+| `Seed__AdminPassword` | 种子管理员密码 | `admin123456` |
 
-### 本地数据目录
+## 本地数据目录
 
 - `storage/postgres`：PostgreSQL 数据
 - `storage/redis`：Redis 持久化数据
 - `storage/uploads`：知识库上传文件
 - `storage/dp-keys`：ASP.NET Core Data Protection 密钥
 
-## 可选种子用户说明
-
-仅当 `SEED_ENABLED=true` 且显式配置了种子密码时，才会创建以下种子用户名：
-
-- 普通用户：`zhangsan`
-- 管理员：`admin`
-
-对应密码不再写死在仓库中，需通过以下环境变量显式注入：
-
-- `SEED_USER_PASSWORD`
-- `SEED_ADMIN_PASSWORD`
-
-开发环境若未提供上述密码，后端会跳过演示用户初始化。
-
-## 共享文档入口
-
-- [共享文档说明](./docs-shared/README.md)
-- [后端多项目拆分决策](./docs-shared/decisions/0001-后端是否拆分多项目.md)
-
-说明：
-
-- `docs-shared/` 只存放需要评审、回溯、协作的共享文档
-- 共享文档结构后续可以按实际协作需要逐步扩展，当前请先以 `docs-shared/README.md` 作为入口
-- `Docs/` 仍为本地专用目录，可继续存放个人草稿或临时记录，但不作为仓库内共享文档入口
-- 如果你过去习惯从 `Docs/` 查找共享文档，请改为从 `docs-shared/README.md` 进入
-
-### 本轮结构重组交付说明
-
-- 本轮已完成共享文档入口收口、根目录统一校验入口、报告路由语义统一、首批页面逻辑下沉、AI 服务测试目录迁移，以及后端组合根拆分。
-- 旧路由 `/report`、`/report/[interviewId]` 和 `/history` 当前均保留为兼容跳转层，分别跳转到 `/reports` 或 `/reports/[interviewId]`。
-- 当前无阻塞性已知回归；唯一保留的非阻塞项是仓库仍采用“ESLint warning 不阻塞 `npm run check`”的策略，如需收紧为零 warning，可后续单独调整。
-
-## 本地验证命令
-
-前端构建：
-
-```powershell
-cd frontend
-npm run build
-```
-
-后端构建：
-
-```powershell
-cd backend
-dotnet build .\src\AiInterview.Api\AiInterview.Api.csproj
-```
-
-AI 服务测试：
-
-```powershell
-cd ai-service
-uv run pytest
-```
-
-如果你只修改了某一层，优先跑对应层的构建或测试即可。
-
 ## 常见问题
 
-### 1. `password authentication failed for user "postgres"`
+### PostgreSQL 认证失败
 
-优先检查：
+检查 `.env.run` 中的 `POSTGRES_PASSWORD` 是否正确，以及是否有旧的 `storage/postgres` 数据卷沿用了历史密码。
 
-1. PostgreSQL 是否真的启动在 `localhost:5433`
-2. `.env.run` 里的 `POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB` 是否仍是预期值
-3. 是否有旧的 `storage/postgres` 数据卷沿用了历史密码
-4. 是否同时跑了 Docker Compose 全套服务和本地 `npm run dev`，造成连接目标混乱
+### 前端端口不一致
 
-### 2. 前端端口为什么有时是 `3000`，有时是 `3001`
+- 本地 `npm run dev`：默认 `3000`
+- Docker Compose：默认 `3001`
+- `start.ps1`：优先 `3000`，被占用时回退 `3001`
 
-- 本地 `npm run dev` 默认是 `3000`
-- Docker Compose 默认把前端暴露到 `3001`
-- `start.ps1` 会优先尝试 `3000`，被占用时回退到 `3001`
+### AI 服务使用 Mock 模式
 
-### 3. 本地 `npm run dev` 为什么也要求 Docker Desktop
+`.env.run` 中 `AI_SERVICE_MODEL_PROVIDER=mock` 为默认值。接入真实 LLM 需要在管理后台配置 API Key 和模型信息。
 
-因为本地联调默认仍依赖 Docker 中的 PostgreSQL 和 Redis。应用层是本机启动，基础设施层默认还是容器提供。
+### 后端连接 AI 服务失败
 
-## 维护原则
+确保 `AiService__ApiKey` 和 `AI_SERVICE_API_KEY` 值一致，且 `AiService__BaseUrl` 指向正确的 AI 服务地址。
 
-如果 README 与当前代码行为冲突，请优先以最近验证过的实现为准，并同步更新文档。  
-如果你正在扩展接口、页面或启动脚本，建议一并更新本文件和 `docs-shared/` 下的共享文档；`Docs/` 可继续用于个人本地记录，但不作为协作文档入口。
+## 相关文档
+
+- [架构设计](Docs/ARCHITECTURE.md)
+- [数据库设计](Docs/DATABASE.md)
+- [API 文档](Docs/API.md)
+- [UI 设计](Docs/DESIGN.md)
+- [决策记录](docs-shared/decisions/)
+- [共享文档入口](docs-shared/README.md)
