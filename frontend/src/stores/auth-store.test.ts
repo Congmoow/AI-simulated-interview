@@ -51,12 +51,12 @@ function resetAuthStore() {
   useAuthStore.setState(useAuthStore.getInitialState());
 }
 
-test("认证状态默认未 hydrate，需等待持久化恢复", () => {
+test("认证状态默认已 hydrate", () => {
   resetAuthStore();
 
   const state = useAuthStore.getState();
 
-  assert.equal(state.hydrated, false);
+  assert.equal(state.hydrated, true);
   assert.equal(state.accessToken, null);
   assert.equal(state.refreshToken, null);
   assert.equal(state.user, null);

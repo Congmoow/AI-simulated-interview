@@ -814,6 +814,7 @@ export function InterviewClient() {
     pendingAnswerAlreadyPersisted,
     reportProgress,
     assistantThinking,
+    streamingText,
   ]);
   const messages = useMemo(() => [...baseMessages, ...tailMessages], [baseMessages, tailMessages]);
   const elapsedLabel = useMemo(
