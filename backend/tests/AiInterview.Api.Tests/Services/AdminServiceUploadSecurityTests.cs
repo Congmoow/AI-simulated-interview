@@ -8,6 +8,7 @@ using AiInterview.Api.Services;
 using AiInterview.Api.Services.Interfaces;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -181,6 +182,7 @@ public class AdminServiceUploadSecurityTests
             {
                 KnowledgeRoot = storageRoot
             }),
+            new MemoryCache(new MemoryCacheOptions()),
             NullLogger<AdminService>.Instance);
     }
 

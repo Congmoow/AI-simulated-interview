@@ -9,6 +9,7 @@ using AiInterview.Api.Services;
 using AiInterview.Api.Services.Interfaces;
 using FluentAssertions;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace AiInterview.Api.Tests.Services;
@@ -40,6 +41,11 @@ file sealed class InMemoryInterviewRepository : IInterviewRepository
     }
 
     public Task<Interview?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(Interview?.Id == id ? Interview : null);
+    }
+
+    public Task<Interview?> GetByIdLightAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return Task.FromResult(Interview?.Id == id ? Interview : null);
     }
@@ -540,6 +546,7 @@ public class InterviewServiceTests
             new StubAiSettingsService(),
             new StubInterviewReportGenerationQueue(),
             new StubHubContext(),
+            new MemoryCache(new MemoryCacheOptions()),
             NullLogger<InterviewService>.Instance);
 
         var result = await service.CreateInterviewAsync(userId, new CreateInterviewRequest
@@ -589,6 +596,7 @@ public class InterviewServiceTests
             new StubAiSettingsService(),
             new StubInterviewReportGenerationQueue(),
             new StubHubContext(),
+            new MemoryCache(new MemoryCacheOptions()),
             NullLogger<InterviewService>.Instance);
 
         var result = await service.CreateInterviewAsync(userId, new CreateInterviewRequest
@@ -628,6 +636,7 @@ public class InterviewServiceTests
             new StubAiSettingsService(),
             queue,
             new StubHubContext(),
+            new MemoryCache(new MemoryCacheOptions()),
             NullLogger<InterviewService>.Instance);
 
         var result = await service.FinishInterviewAsync(userId, interviewId);
@@ -680,6 +689,7 @@ public class InterviewServiceTests
             new StubAiSettingsService(),
             queue,
             new StubHubContext(),
+            new MemoryCache(new MemoryCacheOptions()),
             NullLogger<InterviewService>.Instance);
 
         var result = await service.FinishInterviewAsync(userId, interviewId);
@@ -708,6 +718,7 @@ public class InterviewServiceTests
             new StubAiSettingsService(),
             queue,
             new StubHubContext(),
+            new MemoryCache(new MemoryCacheOptions()),
             NullLogger<InterviewService>.Instance);
 
         var result = await service.FinishInterviewAsync(userId, interviewId);
@@ -735,6 +746,7 @@ public class InterviewServiceTests
             new StubAiSettingsService(),
             queue,
             new StubHubContext(),
+            new MemoryCache(new MemoryCacheOptions()),
             NullLogger<InterviewService>.Instance);
 
         var result = await service.FinishInterviewAsync(userId, interviewId);

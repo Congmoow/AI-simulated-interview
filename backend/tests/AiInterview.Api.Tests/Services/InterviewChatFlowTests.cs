@@ -8,6 +8,7 @@ using AiInterview.Api.Services;
 using AiInterview.Api.Services.Interfaces;
 using FluentAssertions;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace AiInterview.Api.Tests.Services;
@@ -261,6 +262,7 @@ public class InterviewChatFlowTests
             new ChatFlowAiSettingsService(),
             new ChatFlowReportQueue(),
             new ChatFlowHubContext(),
+            new MemoryCache(new MemoryCacheOptions()),
             NullLogger<InterviewService>.Instance);
     }
 }
@@ -294,6 +296,11 @@ sealed class ChatFlowInMemoryInterviewRepository : IInterviewRepository
     }
 
     public Task<Interview?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(Interview?.Id == id ? Interview : null);
+    }
+
+    public Task<Interview?> GetByIdLightAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return Task.FromResult(Interview?.Id == id ? Interview : null);
     }

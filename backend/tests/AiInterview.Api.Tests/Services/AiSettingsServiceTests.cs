@@ -4,6 +4,7 @@ using AiInterview.Api.Models.Entities;
 using AiInterview.Api.Repositories.Interfaces;
 using AiInterview.Api.Services;
 using FluentAssertions;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace AiInterview.Api.Tests.Services;
@@ -66,6 +67,7 @@ public class AiSettingsServiceTests
         var service = new AiSettingsService(
             new InMemoryAiSettingsRepository(),
             new StubApiKeyProtector(),
+            new MemoryCache(new MemoryCacheOptions()),
             NullLogger<AiSettingsService>.Instance);
 
         var result = await service.GetSettingsAsync();
@@ -98,6 +100,7 @@ public class AiSettingsServiceTests
         var service = new AiSettingsService(
             repository,
             new StubApiKeyProtector(),
+            new MemoryCache(new MemoryCacheOptions()),
             NullLogger<AiSettingsService>.Instance);
 
         var result = await service.UpdateSettingsAsync(new UpdateAiSettingsRequest
@@ -135,6 +138,7 @@ public class AiSettingsServiceTests
         var service = new AiSettingsService(
             repository,
             new StubApiKeyProtector(),
+            new MemoryCache(new MemoryCacheOptions()),
             NullLogger<AiSettingsService>.Instance);
 
         var result = await service.TestConnectionAsync(new TestAiConnectionRequest
@@ -161,6 +165,7 @@ public class AiSettingsServiceTests
                 UpdatedBy = "admin"
             }),
             new StubApiKeyProtector(),
+            new MemoryCache(new MemoryCacheOptions()),
             NullLogger<AiSettingsService>.Instance);
 
         var result = await service.BuildProviderAsync();
@@ -182,6 +187,7 @@ public class AiSettingsServiceTests
                 UpdatedBy = "admin"
             }),
             new StubApiKeyProtector(throwOnUnprotect: true),
+            new MemoryCache(new MemoryCacheOptions()),
             NullLogger<AiSettingsService>.Instance);
 
         var result = await service.BuildProviderAsync();
@@ -206,6 +212,7 @@ public class AiSettingsServiceTests
                 UpdatedBy = "admin"
             }),
             new StubApiKeyProtector(),
+            new MemoryCache(new MemoryCacheOptions()),
             NullLogger<AiSettingsService>.Instance);
 
         var result = await service.GetRuntimeSettingsAsync();
@@ -232,6 +239,7 @@ public class AiSettingsServiceTests
                 UpdatedBy = "admin"
             }),
             new StubApiKeyProtector(),
+            new MemoryCache(new MemoryCacheOptions()),
             NullLogger<AiSettingsService>.Instance);
 
         var result = await service.GetRuntimeSettingsAsync();
