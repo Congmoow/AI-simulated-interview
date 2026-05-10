@@ -16,11 +16,12 @@ def _build_settings() -> RuntimeAiSettings:
     )
 
 
-def test_get_provider_should_raise_when_runtime_settings_missing(monkeypatch):
+def test_get_provider_should_return_mock_when_runtime_settings_missing(monkeypatch):
     monkeypatch.setattr(dependencies, "fetch_runtime_ai_settings", lambda: None)
 
-    with pytest.raises(RuntimeError, match="runtime ai settings"):
-        dependencies.get_provider()
+    provider = dependencies.get_provider()
+
+    assert provider.__class__.__name__ == "MockProvider"
 
 
 def test_get_provider_should_return_openai_provider_when_runtime_settings_present(monkeypatch):
@@ -31,14 +32,15 @@ def test_get_provider_should_return_openai_provider_when_runtime_settings_presen
     assert provider.__class__.__name__ == "OpenAICompatibleProvider"
 
 
-def test_get_provider_should_propagate_runtime_settings_error(monkeypatch):
+def test_get_provider_should_return_mock_when_runtime_settings_error(monkeypatch):
     def _raise() -> RuntimeError:
         raise RuntimeError("backend unavailable")
 
     monkeypatch.setattr(dependencies, "fetch_runtime_ai_settings", _raise)
 
-    with pytest.raises(RuntimeError, match="backend unavailable"):
-        dependencies.get_provider()
+    provider = dependencies.get_provider()
+
+    assert provider.__class__.__name__ == "MockProvider"
 
 
 def test_fetch_runtime_ai_settings_should_use_cache_before_ttl_expires(monkeypatch):
