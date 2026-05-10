@@ -3,6 +3,7 @@ using AiInterview.Api.Infrastructure;
 using AiInterview.Api.Models.Entities;
 using AiInterview.Api.Repositories.Interfaces;
 using AiInterview.Api.Services.Interfaces;
+using Microsoft.Extensions.Caching.Memory;
 using System.Diagnostics;
 
 namespace AiInterview.Api.Services;
@@ -10,9 +11,12 @@ namespace AiInterview.Api.Services;
 public class AiSettingsService(
     IAiSettingsRepository repository,
     IApiKeyProtector keyProtector,
+    IMemoryCache memoryCache,
     ILogger<AiSettingsService> logger) : IAiSettingsService
 {
     private const string DefaultProvider = "openai_compatible";
+    private const string SettingsCacheKey = "ai_settings:single";
+    private static readonly TimeSpan SettingsCacheDuration = TimeSpan.FromSeconds(30);
     private const decimal DefaultTemperature = 0.7m;
     private const int DefaultMaxTokens = 2048;
     private const string DefaultUpdatedBy = "system";
@@ -30,7 +34,7 @@ public class AiSettingsService(
 
     public async Task<AiSettingsDto> GetSettingsAsync(CancellationToken cancellationToken = default)
     {
-        var setting = await repository.GetSingleAsync(cancellationToken);
+        var setting = await GetCachedSettingAsync(cancellationToken);
         return setting is null ? CreateDefaultDto() : ToDto(setting);
     }
 
@@ -39,7 +43,7 @@ public class AiSettingsService(
         string updatedBy,
         CancellationToken cancellationToken = default)
     {
-        var existing = await repository.GetSingleAsync(cancellationToken);
+        var existing = await GetCachedSettingAsync(cancellationToken);
 
         string? protectedKey = existing?.ApiKeyProtected;
         string? maskedKey = existing?.ApiKeyMasked;
@@ -71,6 +75,7 @@ public class AiSettingsService(
 
         await repository.UpsertSingleAsync(entity, cancellationToken);
         await repository.SaveChangesAsync(cancellationToken);
+        memoryCache.Remove(SettingsCacheKey);
 
         return ToDto(entity);
     }
@@ -79,7 +84,7 @@ public class AiSettingsService(
         TestAiConnectionRequest? request,
         CancellationToken cancellationToken = default)
     {
-        var existing = await repository.GetSingleAsync(cancellationToken);
+        var existing = await GetCachedSettingAsync(cancellationToken);
 
         var baseUrl = string.IsNullOrWhiteSpace(request?.BaseUrl)
             ? existing?.BaseUrl?.Trim()
@@ -172,7 +177,7 @@ public class AiSettingsService(
 
     public async Task<IAiProvider?> BuildProviderAsync(CancellationToken cancellationToken = default)
     {
-        var setting = await repository.GetSingleAsync(cancellationToken);
+        var setting = await GetCachedSettingAsync(cancellationToken);
         if (setting is null || !setting.IsEnabled)
         {
             return null;
@@ -217,7 +222,7 @@ public class AiSettingsService(
 
     public async Task<AiRuntimeSettingsDto?> GetRuntimeSettingsAsync(CancellationToken cancellationToken = default)
     {
-        var setting = await repository.GetSingleAsync(cancellationToken);
+        var setting = await GetCachedSettingAsync(cancellationToken);
         if (setting is null || !setting.IsEnabled)
         {
             return null;
@@ -290,6 +295,22 @@ public class AiSettingsService(
         UpdatedBy = DefaultUpdatedBy,
         UpdatedAt = DateTimeOffset.MinValue
     };
+
+    private async Task<AiProviderSetting?> GetCachedSettingAsync(CancellationToken cancellationToken)
+    {
+        if (memoryCache.TryGetValue<AiProviderSetting>(SettingsCacheKey, out var cached))
+        {
+            return cached;
+        }
+
+        var setting = await repository.GetSingleAsync(cancellationToken);
+        if (setting is not null)
+        {
+            memoryCache.Set(SettingsCacheKey, setting, SettingsCacheDuration);
+        }
+
+        return setting;
+    }
 
     private static string SanitizeErrorMessage(string message, string? apiKey)
     {

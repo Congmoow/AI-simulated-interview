@@ -11,7 +11,7 @@ public class InterviewHub(IInterviewRepository interviewRepository) : Hub<IInter
     public async Task JoinInterview(JoinInterviewRequest request)
     {
         var userId = Context.User.GetUserId();
-        var interview = await interviewRepository.GetByIdAsync(request.InterviewId);
+        var interview = await interviewRepository.GetByIdLightAsync(request.InterviewId);
 
         if (interview is null || interview.UserId != userId)
         {

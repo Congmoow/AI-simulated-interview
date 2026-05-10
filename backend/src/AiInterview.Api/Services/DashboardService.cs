@@ -7,6 +7,7 @@ using AiInterview.Api.Middleware;
 using AiInterview.Api.Models.Entities;
 using AiInterview.Api.Repositories.Interfaces;
 using AiInterview.Api.Services.Interfaces;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 using System.Globalization;
 using System.Security.Cryptography;
@@ -21,13 +22,15 @@ public class DashboardService(
     IReportRepository reportRepository,
     IAiSettingsService aiSettingsService,
     IMemoryCache memoryCache,
+    IDistributedCache distributedCache,
     ILogger<DashboardService> logger) : IDashboardService
 {
     private const int RecentTrendLimit = 10;
     private const int SourceLimit = 3;
     private const int ReportEvidenceLimit = 4;
     private const int InsightItemLimit = 3;
-    private static readonly TimeSpan NarrativeCacheDuration = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan L1CacheDuration = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan L2CacheDuration = TimeSpan.FromMinutes(15);
     private const string DashboardInsightsSystemPrompt =
         """
         你是一名中文求职辅导顾问。
@@ -67,21 +70,27 @@ public class DashboardService(
             ?? throw new AppException(ErrorCodes.UserNotFound, "用户不存在", StatusCodes.Status404NotFound);
 
         var scope = await ResolveScopeAsync(userId, user, cancellationToken);
-        var totalInterviews = await interviewRepository.CountUserHistoryAsync(
+        var scopePositionCode = scope.Dto.ActualScope == DashboardInsightsRules.ActualScopeTargetPosition ? user.TargetPositionCode : null;
+
+        var totalInterviewsTask = interviewRepository.CountUserHistoryAsync(
             userId,
-            scope.Dto.ActualScope == DashboardInsightsRules.ActualScopeTargetPosition ? user.TargetPositionCode : null,
+            scopePositionCode,
             null,
             null,
             null,
             cancellationToken);
 
-        var recent30DayInterviews = await interviewRepository.CountUserHistoryAsync(
+        var recent30DayInterviewsTask = interviewRepository.CountUserHistoryAsync(
             userId,
-            scope.Dto.ActualScope == DashboardInsightsRules.ActualScopeTargetPosition ? user.TargetPositionCode : null,
+            scopePositionCode,
             null,
             DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-30)),
             null,
             cancellationToken);
+
+        await Task.WhenAll(totalInterviewsTask, recent30DayInterviewsTask);
+        var totalInterviews = totalInterviewsTask.Result;
+        var recent30DayInterviews = recent30DayInterviewsTask.Result;
 
         if (scope.Reports.Count == 0)
         {
@@ -185,10 +194,30 @@ public class DashboardService(
             recentTrend,
             aiSettings);
 
+        // L1: MemoryCache (in-process, fast)
         if (memoryCache.TryGetValue<DashboardNarrativeInsights>(cacheKey, out var cachedInsights) &&
             cachedInsights is not null)
         {
             return cachedInsights;
+        }
+
+        // L2: IDistributedCache (Redis, shared across instances)
+        try
+        {
+            var l2Bytes = await distributedCache.GetAsync(cacheKey, cancellationToken);
+            if (l2Bytes is { Length: > 0 })
+            {
+                var l2Result = JsonSerializer.Deserialize<DashboardNarrativeInsights>(l2Bytes);
+                if (l2Result is not null)
+                {
+                    memoryCache.Set(cacheKey, l2Result, L1CacheDuration);
+                    return l2Result;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "读取 L2 缓存失败，继续生成数据");
         }
 
         var provider = await aiSettingsService.BuildProviderAsync(cancellationToken);
@@ -215,7 +244,7 @@ public class DashboardService(
                 {
                     HeroSummary = string.IsNullOrWhiteSpace(plainSummary) ? fallbackSummary : plainSummary
                 };
-                memoryCache.Set(cacheKey, narrative, NarrativeCacheDuration);
+                await SetCacheAsync(cacheKey, narrative, cancellationToken);
                 return narrative;
             }
 
@@ -238,7 +267,7 @@ public class DashboardService(
                 NextActions = aiNextActions.Length > 0 ? aiNextActions : fallbackNextActions.ToArray()
             };
 
-            memoryCache.Set(cacheKey, result, NarrativeCacheDuration);
+            await SetCacheAsync(cacheKey, result, cancellationToken);
             return result;
         }
         catch (Exception ex)
@@ -757,6 +786,22 @@ public class DashboardService(
     {
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(rawValue));
         return Convert.ToHexString(hash);
+    }
+
+    private async Task SetCacheAsync(string cacheKey, DashboardNarrativeInsights value, CancellationToken cancellationToken)
+    {
+        memoryCache.Set(cacheKey, value, L1CacheDuration);
+
+        try
+        {
+            var json = JsonSerializer.SerializeToUtf8Bytes(value);
+            var options = new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = L2CacheDuration };
+            await distributedCache.SetAsync(cacheKey, json, options, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "写入 L2 缓存失败");
+        }
     }
 
     private static DashboardAiInsightsJson? TryParseAiInsightsJson(string rawContent)

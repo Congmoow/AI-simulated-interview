@@ -32,9 +32,15 @@ builder.Services
     .AddApplicationServices()
     .AddAppSwagger();
 
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+});
+
 var app = builder.Build();
 
 app.UseSerilogRequestLogging();
+app.UseResponseCompression();
 app.UseMiddleware<ExceptionMiddleware>();
 app.UseCors("frontend");
 

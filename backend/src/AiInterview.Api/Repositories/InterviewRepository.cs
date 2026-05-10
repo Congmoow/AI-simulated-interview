@@ -33,6 +33,12 @@ public class InterviewRepository(ApplicationDbContext dbContext) : IInterviewRep
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
     }
 
+    public Task<Interview?> GetByIdLightAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        return dbContext.Interviews
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+    }
+
     public Task<Interview?> GetByIdWithDetailsAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return dbContext.Interviews

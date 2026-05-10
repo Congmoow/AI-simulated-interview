@@ -11,7 +11,7 @@ public class ReportService(IInterviewRepository interviewRepository, IReportRepo
 {
     public async Task<InterviewReportDto> GetReportAsync(Guid userId, Guid interviewId, CancellationToken cancellationToken = default)
     {
-        var interview = await interviewRepository.GetByIdAsync(interviewId, cancellationToken);
+        var interview = await interviewRepository.GetByIdLightAsync(interviewId, cancellationToken);
         if (interview is null || interview.UserId != userId)
         {
             throw new AppException(ErrorCodes.InterviewNotFound, "面试不存在", StatusCodes.Status404NotFound);
@@ -39,10 +39,13 @@ public class ReportService(IInterviewRepository interviewRepository, IReportRepo
             };
         }
 
+        var interviewIds = reports.Select(r => r.InterviewId).Distinct().ToList();
+        var scores = await reportRepository.GetScoresByInterviewIdsAsync(interviewIds, cancellationToken);
+
         var scorePairs = new List<(DateOnly Date, decimal OverallScore, Dictionary<string, DimensionScoreDto> Dimensions)>();
         foreach (var report in reports)
         {
-            var score = await reportRepository.GetScoreByInterviewIdAsync(report.InterviewId, cancellationToken);
+            var score = scores.GetValueOrDefault(report.InterviewId);
             var dimensions = ApplicationMapper.DeserializeObject<Dictionary<string, DimensionScoreDto>>(score?.DimensionScores, []);
 
             if (!string.IsNullOrWhiteSpace(dimension) && dimensions.Count > 0 && !dimensions.ContainsKey(dimension))
