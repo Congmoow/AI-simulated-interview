@@ -314,7 +314,7 @@ file sealed class StubAiIntegrationService : IAiIntegrationService
 
     public Task<AnswerAiResponse?> AnswerStreamAsync(AnswerAiRequest request, Func<string, Task> onChunk, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
-    public Task<ScoreAndReportAiResponse?> ScoreAndReportAsync(ScoreAiRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public Task<ScoreAndReportAiResponse?> ScoreAndReportAsync(ScoreAiRequest request, CancellationToken cancellationToken = default) => Task.FromResult<ScoreAndReportAiResponse?>(null);
 
     public Task<ScoreAiResponse> ScoreAsync(ScoreAiRequest request, CancellationToken cancellationToken = default)
     {
@@ -986,7 +986,7 @@ file sealed class FailingAiIntegrationService : IAiIntegrationService
 
     public Task<AnswerAiResponse?> AnswerStreamAsync(AnswerAiRequest request, Func<string, Task> onChunk, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
-    public Task<ScoreAndReportAiResponse?> ScoreAndReportAsync(ScoreAiRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public Task<ScoreAndReportAiResponse?> ScoreAndReportAsync(ScoreAiRequest request, CancellationToken cancellationToken = default) => Task.FromResult<ScoreAndReportAiResponse?>(null);
 
     public Task<ScoreAiResponse> ScoreAsync(ScoreAiRequest request, CancellationToken cancellationToken = default)
     {
