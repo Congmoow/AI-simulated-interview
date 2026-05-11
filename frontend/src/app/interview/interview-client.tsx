@@ -25,6 +25,7 @@ import {
   getInterviewEntryMode,
   getInterviewTargetUrl,
 } from "@/features/interview/direct-start";
+import { shouldSubmitOnKeyDown } from "@/features/interview/composer-keys";
 import {
   buildInterviewTimelineMessages,
   hasPersistedPendingAnswer,
@@ -157,6 +158,8 @@ export function InterviewClient() {
   const [loading, setLoading] = useState(true);
   const [startingPositionCode, setStartingPositionCode] = useState<string | null>(null);
   const [submittingAnswer, setSubmittingAnswer] = useState(false);
+  // 与 submittingAnswer 同步的 ref，用于在 React 异步状态生效前立即拦截重入提交。
+  const submittingAnswerRef = useRef(false);
   const [finishingInterview, setFinishingInterview] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reportProgress, setReportProgress] = useState<{
@@ -300,9 +303,15 @@ export function InterviewClient() {
   );
 
   const handleSubmitAnswer = useCallback(async () => {
+    // 同步重入锁：React setState 是异步提交的，连续 Ctrl+Enter 或键盘 auto-repeat
+    // 会在 setSubmittingAnswer(true) 生效前连续调起 handleSubmitAnswer，造成同一条
+    // 答复被发送多次。submittingAnswerRef 在进入函数体的同一 microtask 里检查
+    // 与锁定，绕过 React 状态闭包的 stale 限制。
+    if (submittingAnswerRef.current) return;
     if (!interviewId || !detail || !currentMainRoundNumber || !answerText.trim()) {
       return;
     }
+    submittingAnswerRef.current = true;
 
     const answer = answerText.trim();
     const pendingId = `pending-answer-${Date.now()}`;
@@ -347,6 +356,7 @@ export function InterviewClient() {
       persistDraft(answer);
       setError(getRequestErrorMessage(requestError, "提交回答失败"));
     } finally {
+      submittingAnswerRef.current = false;
       setSubmittingAnswer(false);
     }
   }, [
@@ -1004,15 +1014,9 @@ export function InterviewClient() {
           persistDraft(nextValue);
         }}
         onKeyDown={(event) => {
-          if (
-            event.key === "Enter" &&
-            !event.shiftKey &&
-            (event.metaKey || event.ctrlKey)
-          ) {
+          if (shouldSubmitOnKeyDown(event, canSubmit)) {
             event.preventDefault();
-            if (canSubmit) {
-              void handleSubmitAnswer();
-            }
+            void handleSubmitAnswer();
           }
         }}
         onRestoreDraft={() => {
