@@ -22,6 +22,38 @@ from app.schemas.recommendation import (
 from app.schemas.report import GenerateReportRequest, GenerateReportResponse
 
 
+_MOCK_OPENING_PREFIXES = {
+    "friendly": "你好，我是今天陪你模拟面试的陈航，不用紧张，我们慢慢来。",
+    "standard": "你好，我是陈航，今天由我来做这场技术面试。",
+    "stress": "你好，我是陈航，时间有限，我们直接开始。",
+}
+_MOCK_GREETING_DEFLECT_PREFIXES = {
+    "friendly": "嗯，这句还没进入话题，我们先回到当前问题。",
+    "standard": "嗯，先回到当前问题。",
+    "stress": "先别寒暄，回到当前问题。",
+}
+_MOCK_FOLLOWUP_PREFIXES = {
+    "friendly": "挺好的，可以再具体一些。",
+    "standard": "嗯，我想再问细一点。",
+    "stress": "这样讲太笼统了，再具体些。",
+}
+_MOCK_NEXT_QUESTION_PREFIXES = {
+    "friendly": "明白了，我们换个方向聊聊。",
+    "standard": "嗯，接着问下一题。",
+    "stress": "OK，换题。",
+}
+_MOCK_CLOSING_LINES = {
+    "friendly": "好的，本次面试先到这里，感谢你的分享，接下来我会基于刚才的交流为你生成报告。",
+    "standard": "本次面试先到这里，接下来我会基于刚才的交流为你生成报告。",
+    "stress": "本次面试到此结束，接下来看报告。",
+}
+
+
+def _mock_prefix(mapping: dict[str, str], interview_mode: str) -> str:
+    normalized = (interview_mode or "").strip().lower()
+    return mapping.get(normalized, mapping["standard"])
+
+
 class MockProvider:
     _GENERIC_ACKNOWLEDGEMENTS = {
         "hi",
@@ -41,10 +73,12 @@ class MockProvider:
             (item for item in request.question_bank if item.question_id not in set(request.asked_question_ids)),
             request.question_bank[0],
         )
+        prefix = _mock_prefix(_MOCK_OPENING_PREFIXES, request.interview_mode)
+        content = f"{prefix}\n\n{question.content}"
         return StartInterviewResponse(
             action="question",
             messageType="opening",
-            content=question.content,
+            content=content,
             selectedQuestionId=question.question_id,
             suggestions=["先讲背景", "再讲职责与结果"],
             metadata={"selectedQuestionTitle": question.title},
@@ -61,23 +95,25 @@ class MockProvider:
         compact_answer = self._normalize_answer(normalized_answer)
 
         if current_question is not None and self._is_generic_acknowledgement(compact_answer):
+            prefix = _mock_prefix(_MOCK_GREETING_DEFLECT_PREFIXES, request.interview_mode)
             return AnswerInterviewResponse(
                 action="follow_up",
                 messageType="follow_up",
                 content=(
-                    f"你刚才的回答还没有进入当前问题。请先围绕当前问题回答："
+                    f"{prefix}我们先围绕当前问题回答："
                     f"{current_question.asked_content}。"
-                    "请至少补充真实项目背景、你的职责、系统规模和你做过的优化。"
+                    "请基于真实项目说明背景、职责、系统规模和你做过的优化。"
                 ),
                 suggestions=["先按背景-职责-规模-优化展开"],
                 metadata={"anchorQuestionId": str(current_related_question_id) if current_related_question_id else ""},
             )
 
         if current_question is not None and current_question.follow_up_count == 0 and len(normalized_answer) < 120:
+            prefix = _mock_prefix(_MOCK_FOLLOWUP_PREFIXES, request.interview_mode)
             return AnswerInterviewResponse(
                 action="follow_up",
                 messageType="follow_up",
-                content="请再具体一点，补充一下你的职责边界、关键难点和最终结果。",
+                content=f"{prefix}能补充一下你的职责边界、关键难点和最终结果吗？",
                 suggestions=["按背景-职责-难点-结果展开"],
                 metadata={"anchorQuestionId": str(current_related_question_id) if current_related_question_id else ""},
             )
@@ -86,19 +122,21 @@ class MockProvider:
             item for item in request.question_bank if item.question_id not in set(request.asked_question_ids)
         ]
         if request.limits.current_main_question_count >= request.limits.max_main_questions or not unasked_questions:
+            closing = _mock_prefix(_MOCK_CLOSING_LINES, request.interview_mode)
             return AnswerInterviewResponse(
                 action="finish",
                 messageType="closing",
-                content="本次面试先到这里，接下来我会基于刚才的交流为你生成报告。",
+                content=closing,
                 suggestions=["查看报告"],
                 metadata={"finishReason": "limit_or_exhausted"},
             )
 
         next_question = unasked_questions[0]
+        prefix = _mock_prefix(_MOCK_NEXT_QUESTION_PREFIXES, request.interview_mode)
         return AnswerInterviewResponse(
             action="question",
             messageType="question",
-            content=next_question.content,
+            content=f"{prefix}{next_question.content}",
             selectedQuestionId=next_question.question_id,
             suggestions=["结合真实经历回答"],
             metadata={"selectedQuestionTitle": next_question.title},

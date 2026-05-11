@@ -29,10 +29,19 @@ class InterviewService:
         try:
             return await self.provider.start_interview(request)
         except ProviderCallError as exc:
+            inner = exc.__cause__.__class__.__name__ if exc.__cause__ is not None else "n/a"
+            inner_msg = str(exc.__cause__) if exc.__cause__ is not None else "n/a"
             logger.warning(
-                "start_interview_upstream_failed fallback_to_template=true exception_type=%s timeout_seconds=%s",
+                "start_interview_upstream_failed fallback_to_template=true exception_type=%s message=%s status_code=%s timeout_seconds=%s elapsed_ms=%s received_response_headers=%s inner_exception=%s inner_message=%s response_body_snippet=%s",
                 exc.__class__.__name__,
+                str(exc),
+                exc.status_code if exc.status_code is not None else "n/a",
                 exc.timeout_seconds,
+                exc.elapsed_ms if exc.elapsed_ms is not None else "n/a",
+                exc.received_response_headers,
+                inner,
+                inner_msg,
+                exc.response_body_snippet or "n/a",
             )
         except ValueError as exc:
             logger.warning(

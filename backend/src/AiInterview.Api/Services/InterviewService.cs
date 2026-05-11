@@ -49,18 +49,17 @@ public class InterviewService(
             throw new AppException(ErrorCodes.QuestionNotFound, "当前岗位暂无可用题目", StatusCodes.Status404NotFound);
         }
 
-        var localSelectedQuestion = ResolveSelectedQuestion(questionBank, null, []);
-        var openingPayload = new StartInterviewAiResponse
-        {
-            Action = AiInterviewActions.Question,
-            MessageType = InterviewMessageTypes.Opening,
-            Content = BuildOpeningQuestionContent(position.Code, localSelectedQuestion.Content),
-            SelectedQuestionId = localSelectedQuestion.Id,
-            Metadata = new Dictionary<string, object>
-            {
-                ["selectedQuestionTitle"] = localSelectedQuestion.Title
-            }
-        };
+        var interviewMode = string.IsNullOrWhiteSpace(request.InterviewMode)
+            ? InterviewModes.Standard
+            : request.InterviewMode;
+        var openingPayload = await BuildOpeningPayloadAsync(
+            interviewId,
+            position,
+            interviewMode,
+            questionBank,
+            selectedQuestionTypes,
+            totalRounds,
+            cancellationToken);
 
         if (!string.Equals(openingPayload.Action, AiInterviewActions.Question, StringComparison.Ordinal))
         {
@@ -73,7 +72,7 @@ public class InterviewService(
             Id = interviewId,
             UserId = userId,
             PositionCode = position.Code,
-            InterviewMode = string.IsNullOrWhiteSpace(request.InterviewMode) ? InterviewModes.Standard : request.InterviewMode,
+            InterviewMode = interviewMode,
             Status = InterviewStatuses.InProgress,
             TotalRounds = totalRounds,
             CurrentRound = 1,
@@ -752,6 +751,79 @@ public class InterviewService(
         }
 
         return messages;
+    }
+
+    private async Task<StartInterviewAiResponse> BuildOpeningPayloadAsync(
+        Guid interviewId,
+        Position position,
+        string interviewMode,
+        List<QuestionBank> questionBank,
+        string[] selectedQuestionTypes,
+        int totalRounds,
+        CancellationToken cancellationToken)
+    {
+        var localSelectedQuestion = ResolveSelectedQuestion(questionBank, null, []);
+
+        try
+        {
+            var aiRequest = new StartInterviewAiRequest
+            {
+                InterviewId = interviewId,
+                PositionCode = position.Code,
+                PositionName = position.Name ?? position.Code,
+                InterviewMode = interviewMode,
+                QuestionTypes = selectedQuestionTypes,
+                QuestionBank = questionBank.Select(ToCandidateQuestion).ToList(),
+                AskedQuestionIds = [],
+                CurrentMainQuestion = null,
+                RecentMessages = [],
+                HistoryAnswerSummaries = [],
+                Limits = new InterviewAiLimitsDto
+                {
+                    MaxMainQuestions = totalRounds,
+                    CurrentMainQuestionCount = 0,
+                    MaxMessages = DefaultMaxMessages,
+                    CurrentMessageCount = 0,
+                    MaxDurationMinutes = DefaultMaxDurationMinutes,
+                    CurrentDurationMinutes = 0
+                }
+            };
+
+            var aiResponse = await aiIntegrationService.StartInterviewAsync(aiRequest, cancellationToken);
+            if (string.Equals(aiResponse.Action, AiInterviewActions.Question, StringComparison.Ordinal)
+                && !string.IsNullOrWhiteSpace(aiResponse.Content)
+                && aiResponse.SelectedQuestionId.HasValue
+                && questionBank.Any(q => q.Id == aiResponse.SelectedQuestionId.Value))
+            {
+                if (string.IsNullOrWhiteSpace(aiResponse.MessageType))
+                {
+                    aiResponse.MessageType = InterviewMessageTypes.Opening;
+                }
+                return aiResponse;
+            }
+
+            logger.LogWarning(
+                "create_interview_opening_fallback_invalid_payload action={Action} hasContent={HasContent} hasSelectedId={HasSelectedId}",
+                aiResponse.Action,
+                !string.IsNullOrWhiteSpace(aiResponse.Content),
+                aiResponse.SelectedQuestionId.HasValue);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "create_interview_opening_fallback_exception positionCode={PositionCode}", position.Code);
+        }
+
+        return new StartInterviewAiResponse
+        {
+            Action = AiInterviewActions.Question,
+            MessageType = InterviewMessageTypes.Opening,
+            Content = BuildOpeningQuestionContent(position.Code, localSelectedQuestion.Content),
+            SelectedQuestionId = localSelectedQuestion.Id,
+            Metadata = new Dictionary<string, object>
+            {
+                ["selectedQuestionTitle"] = localSelectedQuestion.Title
+            }
+        };
     }
 
     private static List<string> BuildHistoryAnswerSummaries(Interview interview)

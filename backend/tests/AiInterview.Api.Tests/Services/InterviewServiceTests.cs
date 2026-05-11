@@ -559,8 +559,10 @@ public class InterviewServiceTests
         result.PositionName.Should().Be(position.Name);
         result.FirstQuestion.QuestionId.Should().Be(question.Id);
         result.FirstQuestion.Type.Should().Be("project");
-        result.FirstQuestion.Title.Should().Be(question.Content);
-        aiIntegrationService.StartCallCount.Should().Be(0);
+        result.FirstQuestion.Title.Should().Be("Please introduce the most relevant project you have worked on.");
+        aiIntegrationService.StartCallCount.Should().Be(1);
+        result.Messages.Should().ContainSingle();
+        result.Messages.Single().Content.Should().Be("Please introduce the most relevant project you have worked on.");
         interviewRepository.Interview.Should().NotBeNull();
     }
 

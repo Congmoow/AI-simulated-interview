@@ -38,6 +38,7 @@ export function buildInterviewTimelineMessages(
       id: message.id,
       kind: "assistant",
       body: message.content,
+      messageType: message.messageType,
       isCurrent: false,
     };
   });

@@ -34,6 +34,89 @@ from app.services.backend_ai_settings import RuntimeAiSettings
 logger = logging.getLogger(__name__)
 _shared_clients: dict[tuple[str, str], httpx.AsyncClient] = {}
 _shared_clients_lock = threading.Lock()
+INTERVIEWER_PERSONA_BASE = (
+    "你是陈航，一名中文技术面试官，长期承担校招与社招面试。\n"
+    "沟通风格：专业、克制、以事实为依据，不做情绪化评价，不给廉价鼓励。\n"
+    "说话规则：\n"
+    "- 每次回复以一句 8-15 字的自然过渡短语开头（例如\"嗯，我接着问\"/\"明白了，换个角度\"/\"这块挺关键，再问细一点\"），不要机械重复同一句。\n"
+    "- 一次只问一个核心问题，不要连续抛 2 个以上子问题。\n"
+    "- 不重复候选人原话；不复述题目；不给出答案或提示。\n"
+    "- 使用中文标点；不使用 emoji、Markdown、项目符号。"
+)
+MODE_DIRECTIVES = {
+    "friendly": (
+        "当前面试模式：轻松。"
+        "基调友好、鼓励性强；追问以引导与补全为主，不做质疑。"
+        "即便回答不佳，也先肯定一个具体的点，再邀请补充。"
+    ),
+    "standard": (
+        "当前面试模式：标准。"
+        "基调中性专业；聚焦细节与权衡；"
+        "答案存在问题时允许用不冒犯的方式追问一次（例如\"这个结论的依据是？\"）。"
+    ),
+    "stress": (
+        "当前面试模式：高压。"
+        "基调直接、节奏偏快；先一句简短肯定，再立刻提出质疑或反例（例如\"这个理由站不住，换个角度解释？\"）。"
+        "同一主题允许连续质疑 2 次；若候选人开始回避，明确指出并要求正面回答。"
+    ),
+}
+POSITION_FOCUS = {
+    "react": "关注域：React 渲染模型与 Fiber 调度、Hook 原理、状态方案、SSR/RSC、性能优化。",
+    "vue": "关注域：Vue 响应式原理、组合式 API、Pinia/Vuex、构建体系、性能优化。",
+    "golang": "关注域：Goroutine 与调度、并发原语、内存模型、gRPC/微服务、性能剖析。",
+    "python": "关注域：语言特性与 GIL、异步编程、Web 框架、ORM 与数据库、工程化与部署。",
+    "java": "关注域：JVM 内存与 GC、并发与锁、Spring 生态、中间件（Kafka/Redis/MySQL）、分布式一致性与高并发设计。",
+    "frontend": "关注域：浏览器渲染与事件循环、TypeScript 类型、状态管理、前端工程化与性能优化、可访问性。",
+    "web": "关注域：浏览器渲染与事件循环、TypeScript 类型、状态管理、前端工程化与性能优化、可访问性。",
+    "backend": "关注域：系统设计、数据库事务与索引、缓存一致性、消息队列、高可用与容量规划。",
+}
+OUTPUT_RULES = (
+    "输出格式：只返回一个 JSON 对象，不要任何前后缀或 Markdown 代码块。"
+    "JSON 键顺序必须是：content、action、messageType、selectedQuestionId、suggestions、metadata。"
+    "字段含义："
+    "content=给候选人看的中文面试官回复（必须以过渡短语开头，再进入问题或追问）；"
+    "action∈{\"question\",\"follow_up\",\"finish\"}；"
+    "messageType∈{\"opening\",\"question\",\"follow_up\",\"technical_follow_up\",\"closing\"}；"
+    "selectedQuestionId 仅在 action=question 时必填（必须来自给定题库 ID），否则为 null；"
+    "suggestions 为 0-2 条给候选人的提示短语数组；metadata 为对象可为空。"
+    "决策规则："
+    "- 候选人最新回答少于 60 字或明显偏离当前主题 → action=follow_up，要求具体展开；"
+    "- 当前主问题已追问 ≥ 2 次且候选人已有实质回答 → action=question，从题库切到下一道未问的题；"
+    "- 主问题数已达上限或时间临近上限 → action=finish；"
+    "- 不得重复已问过的主问题；追问必须围绕当前主问题。"
+)
+MODE_LABELS = {"friendly": "轻松", "standard": "标准", "stress": "高压"}
+
+
+def _select_position_focus(position_code: str) -> str:
+    normalized = (position_code or "").lower()
+    for key, focus in POSITION_FOCUS.items():
+        if key in normalized:
+            return focus
+    return "关注域：基于候选人回答中出现的技术栈与项目经历，聚焦实战细节与设计权衡。"
+
+
+def _select_mode_directive(interview_mode: str) -> str:
+    normalized = (interview_mode or "").strip().lower()
+    return MODE_DIRECTIVES.get(normalized, MODE_DIRECTIVES["standard"])
+
+
+def _mode_label(interview_mode: str) -> str:
+    normalized = (interview_mode or "").strip().lower()
+    return MODE_LABELS.get(normalized, "标准")
+
+
+def build_interview_system_prompt(interview_mode: str, position_code: str) -> str:
+    return "\n".join(
+        [
+            INTERVIEWER_PERSONA_BASE,
+            _select_mode_directive(interview_mode),
+            _select_position_focus(position_code),
+            OUTPUT_RULES,
+        ]
+    )
+
+
 STANDARD_DIMENSION_WEIGHTS = {
     "technicalAccuracy": 0.30,
     "knowledgeDepth": 0.20,
@@ -134,12 +217,15 @@ class OpenAICompatibleProvider(ModelProvider):
         start_timeout_seconds = 25.0
         payload = await self._chat_json(
             step="start_interview",
-            system_prompt="你是一名中文技术面试官。主问题只能从给定题库中选择。返回 JSON：action、messageType、content、selectedQuestionId、suggestions、metadata。",
+            system_prompt=build_interview_system_prompt(request.interview_mode, request.position_code),
             user_prompt=(
                 f"岗位：{request.position_name} ({request.position_code})\n"
-                f"题库：\n{self._build_question_bank_text(request.question_bank, 1800)}\n"
+                f"面试模式：{_mode_label(request.interview_mode)}\n"
+                f"题库：\n{self._build_question_bank_text(request.question_bank, 1600)}\n"
                 f"已问主问题：{', '.join(str(x) for x in request.asked_question_ids) or '无'}\n"
-                "请直接选择一条最适合作为开场主问题的题目，并生成自然的面试官消息。"
+                "开场要求：content 以一句自然过渡或问候（≤15 字）开头，"
+                "随后从题库挑选一道最合适做开场的主问题正式提问；"
+                "必须设置 selectedQuestionId，messageType 使用 opening。"
             ),
             temperature=max(self.settings.temperature, 0.2),
             max_tokens=min(max(self.settings.max_tokens, 120), 220),
@@ -163,7 +249,7 @@ class OpenAICompatibleProvider(ModelProvider):
     async def answer_interview(self, request: AnswerInterviewRequest) -> AnswerInterviewResponse:
         payload = await self._chat_json(
             step="answer_interview",
-            system_prompt="你是一名中文技术面试官。主问题只能从给定题库中选择；追问必须围绕当前主问题；不得重复已问主问题。返回 JSON：action、messageType、content、selectedQuestionId、suggestions、metadata。action 只能是 question、follow_up、finish。",
+            system_prompt=build_interview_system_prompt(request.interview_mode, request.position_code),
             user_prompt=self._build_compact_answer_prompt(request),
             temperature=max(self.settings.temperature, 0.2),
             max_tokens=220,
@@ -178,12 +264,7 @@ class OpenAICompatibleProvider(ModelProvider):
         try:
             async for chunk_text in self._chat_text_streaming(
                 step="answer_interview",
-                system_prompt=(
-                    "你是中文技术面试官。只返回一个JSON对象。\n"
-                    "字段：action(\"question\"|\"follow_up\"|\"finish\"), messageType(\"opening\"|\"question\"|\"follow_up\"|\"closing\"|\"technical_follow_up\"), "
-                    "content(面试回复文本), selectedQuestionId(UUID或null), suggestions(字符串数组), metadata(对象)。\n"
-                    "主问题只能从题库选择，不要自编。"
-                ),
+                system_prompt=build_interview_system_prompt(request.interview_mode, request.position_code),
                 user_prompt=prompt,
                 temperature=max(self.settings.temperature, 0.3),
                 max_tokens=220,
@@ -422,16 +503,21 @@ class OpenAICompatibleProvider(ModelProvider):
 
     def _build_compact_answer_prompt(self, request: AnswerInterviewRequest) -> str:
         current_title = request.current_main_question.title if request.current_main_question else "无"
+        current_asked = request.current_main_question.asked_content if request.current_main_question else "无"
         follow_up_count = request.current_main_question.follow_up_count if request.current_main_question else 0
         return (
             f"岗位：{request.position_name} ({request.position_code})\n"
+            f"面试模式：{_mode_label(request.interview_mode)}\n"
             f"当前主问题：{current_title}\n"
-            f"当前追问次数：{follow_up_count}\n"
+            f"当前主问题原话：{self._truncate_text(current_asked, 200)}\n"
+            f"当前主问题已追问次数：{follow_up_count}\n"
+            f"本场最近对话（按时间顺序）：\n{self._build_recent_messages_text(request.recent_messages)}\n"
+            f"历史已答摘要：\n{self._build_history_summaries_text(request.history_answer_summaries)}\n"
             f"最新候选人回答：{self._build_latest_user_answer_text(request.recent_messages)}\n"
             f"已问主问题ID：{', '.join(str(x) for x in request.asked_question_ids) or '无'}\n"
             f"限制：主问题数 {request.limits.current_main_question_count}/{request.limits.max_main_questions}\n"
             f"可选题库：\n{self._build_question_bank_choices_text(request.question_bank)}\n"
-            "请直接决定：继续追问、切换主问题，或结束面试。"
+            "请根据系统规则决定：继续追问、切换主问题，或结束面试，并返回 JSON。"
         )
 
     def _parse_answer_payload(self, request: AnswerInterviewRequest, payload: dict[str, Any]) -> AnswerInterviewResponse:
@@ -464,11 +550,31 @@ class OpenAICompatibleProvider(ModelProvider):
             self._http_client = get_shared_http_client(self.settings.base_url, self.settings.api_key)
         return self._http_client
 
+    def _build_chat_payload(self, *, system_prompt: str, user_prompt: str, temperature: float, max_tokens: int, stream: bool = False) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": self.settings.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if stream:
+            payload["stream"] = True
+        provider_name = (self.settings.provider or "").lower()
+        model_name = (self.settings.model or "").lower()
+        # Qwen3 系列 / 显式标记 thinking 的型号默认会先生成 reasoning_content，在小 max_tokens 下会吃掉所有额度导致 JSON 截断；
+        # DashScope OpenAI 兼容模式接受 enable_thinking=false 参数关闭思考。
+        if provider_name == "qwen" and ("qwen3" in model_name or "thinking" in model_name):
+            payload["enable_thinking"] = False
+        return payload
+
     async def _chat_text(self, *, step: str, system_prompt: str, user_prompt: str, temperature: float, max_tokens: int, timeout_seconds: float = 30.0) -> str:
         started_at = time.monotonic()
         client = self._get_http_client()
         try:
-            response = await client.post("chat/completions", json={"model": self.settings.model, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}], "temperature": temperature, "max_tokens": max_tokens}, timeout=timeout_seconds)
+            response = await client.post("chat/completions", json=self._build_chat_payload(system_prompt=system_prompt, user_prompt=user_prompt, temperature=temperature, max_tokens=max_tokens), timeout=timeout_seconds)
             response.raise_for_status()
             payload = response.json()
         except httpx.HTTPStatusError as exc:
@@ -494,13 +600,13 @@ class OpenAICompatibleProvider(ModelProvider):
             async with client.stream(
                 "POST",
                 "chat/completions",
-                json={
-                    "model": self.settings.model,
-                    "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                    "temperature": temperature,
-                    "max_tokens": max_tokens,
-                    "stream": True,
-                },
+                json=self._build_chat_payload(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    stream=True,
+                ),
                 timeout=timeout_seconds,
             ) as response:
                 response.raise_for_status()

@@ -460,6 +460,90 @@ def test_generate_report_should_log_observability_fields_on_timeout(monkeypatch,
     assert "response_body_snippet=" in message
 
 
+def _build_provider_with(provider_name: str, model: str) -> OpenAICompatibleProvider:
+    return OpenAICompatibleProvider(
+        RuntimeAiSettings(
+            provider=provider_name,
+            baseUrl="https://example.com/v1",
+            model=model,
+            apiKey="secret-key",
+            temperature=0.3,
+            maxTokens=512,
+            systemPrompt="test",
+        )
+    )
+
+
+def test_build_chat_payload_disables_thinking_for_qwen3_models() -> None:
+    provider = _build_provider_with("qwen", "qwen3.5-flash")
+
+    payload = provider._build_chat_payload(
+        system_prompt="sys",
+        user_prompt="usr",
+        temperature=0.2,
+        max_tokens=200,
+    )
+
+    assert payload["enable_thinking"] is False
+    assert payload["model"] == "qwen3.5-flash"
+    assert payload["max_tokens"] == 200
+    assert "stream" not in payload
+
+
+def test_build_chat_payload_disables_thinking_for_explicit_thinking_models() -> None:
+    provider = _build_provider_with("qwen", "qwen-thinking-2024")
+
+    payload = provider._build_chat_payload(
+        system_prompt="sys",
+        user_prompt="usr",
+        temperature=0.2,
+        max_tokens=200,
+    )
+
+    assert payload["enable_thinking"] is False
+
+
+def test_build_chat_payload_does_not_disable_thinking_for_legacy_qwen() -> None:
+    provider = _build_provider_with("qwen", "qwen-plus")
+
+    payload = provider._build_chat_payload(
+        system_prompt="sys",
+        user_prompt="usr",
+        temperature=0.2,
+        max_tokens=200,
+    )
+
+    assert "enable_thinking" not in payload
+
+
+def test_build_chat_payload_does_not_disable_thinking_for_other_providers() -> None:
+    provider = _build_provider_with("openai", "qwen3.5-flash")
+
+    payload = provider._build_chat_payload(
+        system_prompt="sys",
+        user_prompt="usr",
+        temperature=0.2,
+        max_tokens=200,
+    )
+
+    assert "enable_thinking" not in payload
+
+
+def test_build_chat_payload_marks_stream_when_requested() -> None:
+    provider = _build_provider_with("qwen", "qwen3.5-flash")
+
+    payload = provider._build_chat_payload(
+        system_prompt="sys",
+        user_prompt="usr",
+        temperature=0.2,
+        max_tokens=200,
+        stream=True,
+    )
+
+    assert payload["stream"] is True
+    assert payload["enable_thinking"] is False
+
+
 def test_chat_text_should_reuse_shared_http_client(monkeypatch) -> None:
     provider = _build_provider()
     created_clients: list[tuple[str, str]] = []

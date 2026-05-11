@@ -70,9 +70,10 @@ public class InterviewChatFlowTests
         var createdMessages = result.Messages.ToList();
         createdMessages[0].Role.Should().Be("assistant");
         createdMessages[0].MessageType.Should().Be("opening");
-        createdMessages[0].Content.Should().Be(catalog.Questions[0].Content);
+        createdMessages[0].Content.Should().Be("先请你介绍一个最相关的后端项目。");
         repository.Interview!.Messages.Should().ContainSingle();
         repository.Interview.Rounds.Should().ContainSingle();
+        repository.Interview.Rounds.Single().QuestionId.Should().Be(questionId);
         repository.Interview.CurrentRound.Should().Be(1);
     }
 

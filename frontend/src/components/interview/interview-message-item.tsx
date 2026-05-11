@@ -2,6 +2,11 @@
 
 import { cn } from "@/lib/cn";
 import {
+  INTERVIEWER_PERSONA,
+  getInterviewerMessageTag,
+  getInterviewerMessageVariantClass,
+} from "@/lib/interviewer-persona";
+import {
   InterviewSystemNotice,
   type InterviewSystemAction,
   type InterviewSystemTone,
@@ -20,6 +25,7 @@ type InterviewAssistantMessage = {
   title?: string;
   body: string;
   tag?: string;
+  messageType?: string;
   isCurrent?: boolean;
   isThinking?: boolean;
   isStreaming?: boolean;
@@ -74,14 +80,30 @@ export function InterviewMessageItem({
     const isThinking = message.isThinking === true;
     const isStreaming = "isStreaming" in message && message.isStreaming === true;
 
+    const messageTag = getInterviewerMessageTag(message.messageType);
+    const variantClass = getInterviewerMessageVariantClass(message.messageType);
+
     return (
       <div className="flex justify-start">
         <div className="flex max-w-[48%] min-w-0 flex-col items-start gap-2">
           <div className="flex items-center gap-2 px-1 text-[12px] font-medium text-[var(--token-color-text-secondary)]">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[rgba(15,23,42,0.08)] text-[11px] font-semibold text-[var(--token-color-text-secondary)]">
-              HR
+            <div
+              aria-hidden="true"
+              className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[rgba(15,23,42,0.08)] text-[11px] font-semibold text-[var(--token-color-text-secondary)]"
+            >
+              {INTERVIEWER_PERSONA.initials}
             </div>
-            <span>面试官 HR</span>
+            <span>
+              {INTERVIEWER_PERSONA.role} {INTERVIEWER_PERSONA.name}
+            </span>
+            {messageTag ? (
+              <span
+                className="inline-flex items-center rounded-full bg-[rgba(35,105,212,0.08)] px-2 py-[2px] text-[11px] font-medium text-[#2369d4]"
+                data-testid="interview-message-tag"
+              >
+                {messageTag}
+              </span>
+            ) : null}
           </div>
           <div className="interview-bubble-shell interview-bubble-shell--assistant">
             <span
@@ -94,12 +116,14 @@ export function InterviewMessageItem({
             <article
               className={cn(
                 "inline-block w-fit max-w-full rounded-[20px] rounded-bl-md px-4 py-3 shadow-[0_8px_20px_rgba(15,23,42,0.06)] transition-colors duration-200",
+                variantClass,
                 isThinking
                   ? "border border-[rgba(148,163,184,0.2)] bg-[rgba(248,250,252,0.98)]"
                   : message.isCurrent
                     ? "bg-[rgba(255,255,255,0.98)]"
                     : "bg-[rgba(255,255,255,0.92)]",
               )}
+              data-message-type={message.messageType ?? "unspecified"}
             >
               {isThinking && isStreaming ? (
                 <p className="whitespace-pre-wrap text-[15px] leading-7 text-[var(--token-color-text-primary)]">
